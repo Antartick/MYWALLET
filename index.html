@@ -96,6 +96,32 @@ body {
 .btn-icon:active { transform: scale(0.94); background: var(--bg4); }
 .btn-icon svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .btn-icon.active-blur { background: var(--bg4); color: var(--text); }
+/* SYNC DOT */
+.sync-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--text3); flex-shrink: 0;
+  transition: background 400ms var(--ease-out), box-shadow 400ms var(--ease-out);
+}
+.sync-dot.green { background: #4d9e6e; box-shadow: 0 0 0 3px rgba(77,158,110,0.18); }
+.sync-dot.yellow { background: #c8a840; box-shadow: 0 0 0 3px rgba(200,168,64,0.18); }
+.sync-dot.red { background: #9e4d4d; box-shadow: 0 0 0 3px rgba(158,77,77,0.18); }
+/* BIGGER edit/delete buttons */
+.edit-btn {
+  width: 34px; height: 34px; border-radius: 8px;
+  background: var(--bg3); border: 0.5px solid var(--border2);
+  color: var(--text2); cursor: pointer; font-size: 14px;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 120ms var(--ease-out);
+}
+.edit-btn:active { background: var(--bg4); }
+.del-btn {
+  width: 34px; height: 34px; border-radius: 8px;
+  background: var(--red-bg); border: 0.5px solid rgba(158,77,77,0.2);
+  color: var(--red); cursor: pointer; font-size: 14px;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 120ms var(--ease-out);
+}
+.del-btn:active { background: rgba(158,77,77,0.2); }
 
 /* ── ACCOUNT SELECTOR ── */
 .selector-wrap { padding: 12px 20px 0; }
@@ -479,7 +505,10 @@ body {
 
 <!-- TOPBAR -->
 <div class="topbar">
-  <span class="app-wordmark">Wallet</span>
+  <div style="display:flex;align-items:center;gap:8px;">
+    <div class="sync-dot" id="syncDot" title="Sync status"></div>
+    <span class="app-wordmark">Wallet</span>
+  </div>
   <button class="btn-icon" id="blurBtn" onclick="toggleBlur()" title="Hide amounts">
     <svg viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
   </button>
@@ -656,7 +685,14 @@ const FB_CONFIG = {
 };
 let fbRef = null, fbPhysRef = null, syncTimer = null;
 
+function setSyncDot(state) {
+  const dot = document.getElementById('syncDot');
+  if (!dot) return;
+  dot.className = 'sync-dot ' + state;
+}
+
 function initFirebase() {
+  setSyncDot('');
   const s1 = document.createElement('script');
   s1.src = 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js';
   s1.onload = () => {
@@ -668,6 +704,16 @@ function initFirebase() {
         const db = firebase.database();
         fbRef = db.ref('wallet/data');
         fbPhysRef = db.ref('wallet/phys');
+
+        // Connection state monitor
+        db.ref('.info/connected').on('value', snap => {
+          if (snap.val() === true) {
+            setSyncDot('green');
+          } else {
+            setSyncDot('red');
+          }
+        });
+
         fbRef.on('value', snap => {
           const v = snap.val();
           if (v && v.revolut) { DB = v; localStorage.setItem('wv2_data', JSON.stringify(DB)); renderCurrentPage(); }
@@ -676,11 +722,12 @@ function initFirebase() {
           const v = snap.val();
           if (v) { PHYS = Array.isArray(v) ? v : Object.values(v); localStorage.setItem('wv2_phys', JSON.stringify(PHYS)); }
         });
-        toast('Synced ✓');
-      } catch(e) { console.warn('Firebase error', e); }
+      } catch(e) { console.warn('Firebase error', e); setSyncDot('red'); }
     };
+    s2.onerror = () => setSyncDot('red');
     document.head.appendChild(s2);
   };
+  s1.onerror = () => setSyncDot('red');
   document.head.appendChild(s1);
 }
 
@@ -709,9 +756,16 @@ let invChartInst = null;
 function save() {
   localStorage.setItem('wv2_data', JSON.stringify(DB));
   localStorage.setItem('wv2_phys', JSON.stringify(PHYS));
+  setSyncDot('yellow');
   if (syncTimer) clearTimeout(syncTimer);
   syncTimer = setTimeout(() => {
-    if (fbRef) { fbRef.set(DB).catch(()=>{}); fbPhysRef.set(PHYS).catch(()=>{}); }
+    if (fbRef) {
+      Promise.all([fbRef.set(DB), fbPhysRef.set(PHYS)])
+        .then(() => setSyncDot('green'))
+        .catch(() => setSyncDot('red'));
+    } else {
+      setSyncDot('red');
+    }
   }, 800);
 }
 
@@ -748,11 +802,29 @@ function invNetAfterTax(inv) {
 }
 function invPct(inv) { return (invGain(inv) / invCostEur(inv)) * 100; }
 
+function applyDueRecurring(k) {
+  // Auto-deduct recurring expenses when their day has passed this month
+  const d = DB[k];
+  const now = new Date();
+  const todayDay = now.getDate();
+  const monthKey = now.getFullYear() + '-' + (now.getMonth() + 1);
+  if (!d._appliedMonths) d._appliedMonths = {};
+  d.recurring.forEach(r => {
+    const rKey = r.id + '_' + monthKey;
+    if (!d._appliedMonths[rKey] && todayDay >= r.day) {
+      d.liquidity = (d.liquidity || 0) - r.amount;
+      d.expenses.unshift({ id: uid(), name: r.name + ' (auto)', amount: -r.amount, date: monthKey + '-' + String(r.day).padStart(2,'0') });
+      d._appliedMonths[rKey] = true;
+    }
+  });
+}
+
 function accSummary(k) {
   const d = DB[k];
   const investments = d.investments.reduce((s, i) => s + invValEur(i), 0);
   const recurring = d.recurring.reduce((s, r) => s + r.amount, 0);
-  return { liquidity: d.liquidity, investments, recurring, total: d.liquidity + investments + recurring };
+  // recurring shown as proportion only — not subtracted from total (auto-deduct happens via applyDueRecurring)
+  return { liquidity: d.liquidity, investments, recurring, total: d.liquidity + investments };
 }
 
 // ═══════════════════════════════════════════════
@@ -819,6 +891,7 @@ const SLICE_LABELS = { liquidity: 'Liquidity', investments: 'Investments', recur
 let pieInst = null;
 
 function renderHome() {
+  applyDueRecurring(currentAcc);
   const s = accSummary(currentAcc);
   const d = DB[currentAcc];
   document.getElementById('homeTotalVal').textContent = fmt(s.total);
@@ -1524,7 +1597,7 @@ function addExp() {
   DB[currentAcc].expenses.unshift({ id: uid(), name: n, amount: a, date: dt });
   save(); renderEdit(); toast('Transaction added');
 }
-function delExp(i) { if (confirm('Delete?')) { DB[currentAcc].expenses.splice(i, 1); save(); renderEdit(); } }
+function delExp(i) { showConfirm('Delete this transaction?', () => { DB[currentAcc].expenses.splice(i, 1); save(); renderEdit(); }); }
 function editExp(i) {
   const e = DB[currentAcc].expenses[i];
   openEditSheet('Edit transaction', `
@@ -1556,7 +1629,7 @@ function addInv() {
   DB[currentAcc].investments.push({ id: uid(), ticker, name, type, qty, entry, current, currency, date });
   save(); renderEdit(); toast('Investment added');
 }
-function delInv(i) { if (confirm('Delete?')) { DB[currentAcc].investments.splice(i, 1); save(); renderEdit(); } }
+function delInv(i) { showConfirm('Delete this investment?', () => { DB[currentAcc].investments.splice(i, 1); save(); renderEdit(); }); }
 function editInv(i) {
   const inv = DB[currentAcc].investments[i];
   openEditSheet('Edit investment', `
@@ -1583,7 +1656,7 @@ function addRec() {
   DB[currentAcc].recurring.push({ id: uid(), name: n, amount: a, day });
   save(); renderEdit(); toast('Recurring added');
 }
-function delRec(i) { if (confirm('Delete?')) { DB[currentAcc].recurring.splice(i, 1); save(); renderEdit(); } }
+function delRec(i) { showConfirm('Delete this recurring expense?', () => { DB[currentAcc].recurring.splice(i, 1); save(); renderEdit(); }); }
 function editRec(i) {
   const r = DB[currentAcc].recurring[i];
   openEditSheet('Edit recurring', `
@@ -1651,6 +1724,40 @@ function sheetBgClose(e, id) { if (e.target === e.currentTarget) closeSheet(id);
 // ═══════════════════════════════════════════════
 // TOAST
 // ═══════════════════════════════════════════════
+// ═══════════════════════════════════════════════
+// CONFIRM DIALOG
+// ═══════════════════════════════════════════════
+function showConfirm(msg, onConfirm) {
+  let overlay = document.getElementById('confirmOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'confirmOverlay';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:300;background:rgba(0,0,0,0.65);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:20px;';
+    overlay.innerHTML = `<div style="background:var(--bg2);border:0.5px solid var(--border2);border-radius:18px;padding:24px 20px;width:100%;max-width:320px;text-align:center;">
+      <div id="confirmMsg" style="font-size:15px;font-weight:500;margin-bottom:20px;line-height:1.5;"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <button onclick="closeConfirm(false)" style="padding:12px;border-radius:10px;background:var(--bg3);border:0.5px solid var(--border2);color:var(--text2);font-family:var(--font);font-size:14px;font-weight:500;cursor:pointer;">Cancel</button>
+        <button id="confirmOk" style="padding:12px;border-radius:10px;background:var(--red-bg);border:0.5px solid rgba(158,77,77,0.3);color:var(--red);font-family:var(--font);font-size:14px;font-weight:600;cursor:pointer;">Delete</button>
+      </div>
+    </div>`;
+    document.body.appendChild(overlay);
+  }
+  document.getElementById('confirmMsg').textContent = msg;
+  overlay.style.display = 'flex';
+  overlay.onclick = e => { if (e.target === overlay) closeConfirm(false); };
+  window._confirmCb = onConfirm;
+}
+window.closeConfirm = function(ok) {
+  const overlay = document.getElementById('confirmOverlay');
+  if (overlay) overlay.style.display = 'none';
+  if (ok && window._confirmCb) window._confirmCb();
+  window._confirmCb = null;
+};
+document.addEventListener('DOMContentLoaded', () => {
+  const ok = document.getElementById('confirmOk');
+  if (ok) ok.onclick = () => closeConfirm(true);
+});
+
 let toastTimer = null;
 function toast(msg, isErr) {
   const el = document.getElementById('toast');
