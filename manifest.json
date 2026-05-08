@@ -1,26 +1,26 @@
 {
-  "name": "Portafoglio",
-  "short_name": "Portafoglio",
-  "description": "Il tuo tracker personale di investimenti e net worth",
+  "name": "Wallet",
+  "short_name": "Wallet",
+  "description": "Personal portfolio tracker",
   "start_url": "./index.html",
   "display": "standalone",
-  "background_color": "#0a0a0a",
-  "theme_color": "#0a0a0a",
+  "background_color": "#0c0c0c",
+  "theme_color": "#0c0c0c",
   "orientation": "portrait",
   "icons": [
     {
-      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect width='192' height='192' rx='40' fill='%230a0a0a'/><path d='M48 96L80 64l32 48 32-56 0 80' stroke='%234ade80' stroke-width='12' stroke-linecap='round' stroke-linejoin='round' fill='none'/></svg>",
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect width='192' height='192' rx='40' fill='%230c0c0c'/><polyline points='40,120 72,80 104,104 136,60 160,75' stroke='%234d9e6e' stroke-width='12' stroke-linecap='round' stroke-linejoin='round' fill='none'/></svg>",
       "sizes": "192x192",
       "type": "image/svg+xml",
       "purpose": "any maskable"
     },
     {
-      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='110' fill='%230a0a0a'/><path d='M120 256L200 170l90 135 90-155 0 220' stroke='%234ade80' stroke-width='32' stroke-linecap='round' stroke-linejoin='round' fill='none'/></svg>",
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='110' fill='%230c0c0c'/><polyline points='80,340 180,210 280,275 380,150 440,185' stroke='%234d9e6e' stroke-width='28' stroke-linecap='round' stroke-linejoin='round' fill='none'/></svg>",
       "sizes": "512x512",
       "type": "image/svg+xml",
       "purpose": "any maskable"
     }
   ],
-  "categories": ["finance", "productivity"],
-  "lang": "it"
+  "categories": ["finance"],
+  "lang": "en"
 }
