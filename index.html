@@ -1424,11 +1424,11 @@ const TICKERS = [
   { ticker:'CSPX',  name:'iShares Core S&P 500',   type:'etf',    price:520.00, currency:'USD' },
   { ticker:'EIMI',  name:'iShares MSCI EM IMI',     type:'etf',    price:26.40,  currency:'USD' },
   { ticker:'XDWD',  name:'Xtrackers MSCI World',   type:'etf',    price:90.10,  currency:'EUR' },
-  { ticker:'BTC',   name:'Bitcoin',                 type:'crypto', price:96500,  currency:'USD' },
-  { ticker:'ETH',   name:'Ethereum',                type:'crypto', price:3400,   currency:'USD' },
-  { ticker:'SOL',   name:'Solana',                  type:'crypto', price:185.00, currency:'USD' },
-  { ticker:'BNB',   name:'BNB',                     type:'crypto', price:600.00, currency:'USD' },
-  { ticker:'XRP',   name:'XRP',                     type:'crypto', price:2.10,   currency:'USD' },
+  { ticker:'BTC',   name:'Bitcoin',                 type:'crypto', price:88780,  currency:'EUR' },
+  { ticker:'ETH',   name:'Ethereum',                type:'crypto', price:3128,   currency:'EUR' },
+  { ticker:'SOL',   name:'Solana',                  type:'crypto', price:170.20, currency:'EUR' },
+  { ticker:'BNB',   name:'BNB',                     type:'crypto', price:552.00, currency:'EUR' },
+  { ticker:'XRP',   name:'XRP',                     type:'crypto', price:1.93,   currency:'EUR' },
   { ticker:'BTP30', name:'BTP Italia 2030',         type:'bond',   price:98.20,  currency:'EUR' },
   { ticker:'BTP28', name:'BTP Italia 2028',         type:'bond',   price:99.40,  currency:'EUR' },
 ];
@@ -1458,7 +1458,7 @@ function selectTicker(t) {
   document.getElementById('iName').value = t.name;
   document.getElementById('iType').value = t.type;
   document.getElementById('iCurrent').value = t.price;
-  document.getElementById('iCurrency').value = t.currency;
+  document.getElementById('iCurrency').value = 'EUR';
 }
 
 // ═══════════════════════════════════════════════
