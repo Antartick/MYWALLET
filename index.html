@@ -645,6 +645,45 @@ function taxRate(inv) {
 
 const USDEUR = 0.92;
 
+// ═══════════════════════════════════════════════
+// FIREBASE
+// ═══════════════════════════════════════════════
+const FB_CONFIG = {
+  apiKey: "AIzaSyCuu5MNcgvJI5qdM1nGXlWJ7aHdjc0qnUI",
+  databaseURL: "https://mywallet-8de40-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "mywallet-8de40",
+  appId: "1:574526146740:web:65317a95dcda6ce1476fe1"
+};
+let fbRef = null, fbPhysRef = null, syncTimer = null;
+
+function initFirebase() {
+  const s1 = document.createElement('script');
+  s1.src = 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js';
+  s1.onload = () => {
+    const s2 = document.createElement('script');
+    s2.src = 'https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js';
+    s2.onload = () => {
+      try {
+        if (!firebase.apps.length) firebase.initializeApp(FB_CONFIG);
+        const db = firebase.database();
+        fbRef = db.ref('wallet/data');
+        fbPhysRef = db.ref('wallet/phys');
+        fbRef.on('value', snap => {
+          const v = snap.val();
+          if (v && v.revolut) { DB = v; localStorage.setItem('wv2_data', JSON.stringify(DB)); renderCurrentPage(); }
+        });
+        fbPhysRef.on('value', snap => {
+          const v = snap.val();
+          if (v) { PHYS = Array.isArray(v) ? v : Object.values(v); localStorage.setItem('wv2_phys', JSON.stringify(PHYS)); }
+        });
+        toast('Synced ✓');
+      } catch(e) { console.warn('Firebase error', e); }
+    };
+    document.head.appendChild(s2);
+  };
+  document.head.appendChild(s1);
+}
+
 function loadData() {
   try {
     const d = JSON.parse(localStorage.getItem('wv2_data'));
@@ -670,6 +709,10 @@ let invChartInst = null;
 function save() {
   localStorage.setItem('wv2_data', JSON.stringify(DB));
   localStorage.setItem('wv2_phys', JSON.stringify(PHYS));
+  if (syncTimer) clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => {
+    if (fbRef) { fbRef.set(DB).catch(()=>{}); fbPhysRef.set(PHYS).catch(()=>{}); }
+  }, 800);
 }
 
 // ═══════════════════════════════════════════════
@@ -1424,11 +1467,11 @@ const TICKERS = [
   { ticker:'CSPX',  name:'iShares Core S&P 500',   type:'etf',    price:520.00, currency:'USD' },
   { ticker:'EIMI',  name:'iShares MSCI EM IMI',     type:'etf',    price:26.40,  currency:'USD' },
   { ticker:'XDWD',  name:'Xtrackers MSCI World',   type:'etf',    price:90.10,  currency:'EUR' },
-  { ticker:'BTC',   name:'Bitcoin',                 type:'crypto', price:88780,  currency:'EUR' },
-  { ticker:'ETH',   name:'Ethereum',                type:'crypto', price:3128,   currency:'EUR' },
-  { ticker:'SOL',   name:'Solana',                  type:'crypto', price:170.20, currency:'EUR' },
-  { ticker:'BNB',   name:'BNB',                     type:'crypto', price:552.00, currency:'EUR' },
-  { ticker:'XRP',   name:'XRP',                     type:'crypto', price:1.93,   currency:'EUR' },
+  { ticker:'BTC',   name:'Bitcoin',                 type:'crypto', price:96500,  currency:'USD' },
+  { ticker:'ETH',   name:'Ethereum',                type:'crypto', price:3400,   currency:'USD' },
+  { ticker:'SOL',   name:'Solana',                  type:'crypto', price:185.00, currency:'USD' },
+  { ticker:'BNB',   name:'BNB',                     type:'crypto', price:600.00, currency:'USD' },
+  { ticker:'XRP',   name:'XRP',                     type:'crypto', price:2.10,   currency:'USD' },
   { ticker:'BTP30', name:'BTP Italia 2030',         type:'bond',   price:98.20,  currency:'EUR' },
   { ticker:'BTP28', name:'BTP Italia 2028',         type:'bond',   price:99.40,  currency:'EUR' },
 ];
@@ -1458,7 +1501,7 @@ function selectTicker(t) {
   document.getElementById('iName').value = t.name;
   document.getElementById('iType').value = t.type;
   document.getElementById('iCurrent').value = t.price;
-  document.getElementById('iCurrency').value = 'EUR';
+  document.getElementById('iCurrency').value = t.currency;
 }
 
 // ═══════════════════════════════════════════════
@@ -1633,6 +1676,7 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catc
 // ═══════════════════════════════════════════════
 updatePickerUI('revolut');
 renderHome();
+initFirebase();
 </script>
 </body>
 </html>
