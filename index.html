@@ -719,7 +719,7 @@ function initFirebase() {
 
         fbRef.on('value', snap => {
           const v = snap.val();
-          if (v && v.revolut) { DB = v; localStorage.setItem('wv2_data', JSON.stringify(DB)); renderCurrentPage(); }
+          if (v) { DB = sanitizeDB(v); localStorage.setItem('wv2_data', JSON.stringify(DB)); renderCurrentPage(); }
         });
         fbPhysRef.on('value', snap => {
           const v = snap.val();
@@ -734,15 +734,27 @@ function initFirebase() {
   document.head.appendChild(s1);
 }
 
+function sanitizeDB(d) {
+  if (!d) d = {};
+  Object.keys(ACCOUNTS_META).forEach(k => {
+    if (!d[k]) d[k] = EMPTY_ACCOUNT();
+    if (!d[k].investments) d[k].investments = [];
+    if (!d[k].expenses)    d[k].expenses = [];
+    if (!d[k].recurring)   d[k].recurring = [];
+    if (!d[k].liquidity)   d[k].liquidity = 0;
+    if (!d[k]._appliedMonths) d[k]._appliedMonths = {};
+  });
+  if (!d._salary) d._salary = 0;
+  if (!d._otherIncome) d._otherIncome = 0;
+  return d;
+}
+
 function loadData() {
   try {
     const d = JSON.parse(localStorage.getItem('wv2_data'));
-    if (d && d.revolut) return d;
+    if (d && d.revolut) return sanitizeDB(d);
   } catch(e) {}
-  const d = {};
-  Object.keys(ACCOUNTS_META).forEach(k => d[k] = EMPTY_ACCOUNT());
-  d._salary = 0; d._otherIncome = 0;
-  return d;
+  return sanitizeDB({});
 }
 function loadPhys() {
   try { return JSON.parse(localStorage.getItem('wv2_phys')) || []; } catch(e) { return []; }
