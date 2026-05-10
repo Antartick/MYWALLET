@@ -329,9 +329,9 @@ body {
 /* ── MODAL / SHEET ── */
 .overlay {
   display: none; position: fixed; inset: 0; z-index: 200;
-  background: rgba(0,0,0,0.6); backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  background: rgba(0,0,0,0.75);
   align-items: flex-end; justify-content: center;
+  /* iOS fix: no backdrop-filter on overlay */
 }
 .overlay.open { display: flex; }
 .sheet {
@@ -341,10 +341,19 @@ body {
   border: 0.5px solid var(--border2);
   padding: 0 20px calc(24px + var(--safe-bottom));
   max-height: 88vh; overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   transform: translateY(100%);
   transition: transform 280ms var(--ease-drawer);
+  /* iOS fix: force GPU layer */
+  -webkit-transform: translateY(100%);
+  will-change: transform;
+  position: relative;
+  z-index: 201;
 }
-.overlay.open .sheet { transform: translateY(0); }
+.overlay.open .sheet {
+  transform: translateY(0);
+  -webkit-transform: translateY(0);
+}
 .sheet-handle {
   width: 32px; height: 4px; border-radius: 2px;
   background: var(--bg5); margin: 14px auto 18px;
@@ -1833,17 +1842,30 @@ function checkRecurringAlerts() {
 
 function showRecAlert(alerts) {
   const overlay = document.createElement('div');
-  overlay.style.cssText = 'position:fixed;inset:0;z-index:400;background:rgba(0,0,0,0.7);backdrop-filter:blur(6px);display:flex;align-items:flex-start;justify-content:center;padding:60px 20px 20px;';
-  overlay.innerHTML = `<div style="background:var(--bg2);border:0.5px solid var(--border2);border-radius:18px;padding:20px;width:100%;max-width:380px;">
-    <div style="font-size:15px;font-weight:600;margin-bottom:14px;">⚠️ Upcoming renewals</div>
-    ${alerts.map(a => `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:0.5px solid var(--border);">
-      <div>
-        <div style="font-size:13px;font-weight:500;">💳 ${a.name}</div>
-        <div style="font-size:12px;color:var(--red);margin-top:2px;">${a.msg}</div>
-      </div>
-    </div>`).join('')}
-    <button onclick="this.closest('div').parentElement.remove()" style="width:100%;margin-top:14px;padding:12px;border-radius:10px;background:var(--text);color:var(--bg);border:none;font-family:var(--font);font-size:14px;font-weight:600;cursor:pointer;">Got it</button>
-  </div>`;
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:400;background:rgba(0,0,0,0.8);display:flex;align-items:flex-start;justify-content:center;padding:60px 20px 20px;';
+  
+  const box = document.createElement('div');
+  box.style.cssText = 'background:#1c1c1c;border:0.5px solid rgba(255,255,255,0.12);border-radius:18px;padding:20px;width:100%;max-width:380px;';
+  
+  const title = document.createElement('div');
+  title.style.cssText = 'font-size:15px;font-weight:600;margin-bottom:14px;color:#f0f0f0;font-family:Inter,sans-serif;';
+  title.textContent = '⚠️ Upcoming renewals';
+  box.appendChild(title);
+  
+  alerts.forEach(a => {
+    const row = document.createElement('div');
+    row.style.cssText = 'padding:8px 0;border-bottom:0.5px solid rgba(255,255,255,0.06);';
+    row.innerHTML = `<div style="font-size:13px;font-weight:500;color:#f0f0f0;font-family:Inter,sans-serif;">💳 ${a.name}</div><div style="font-size:12px;color:#c87070;margin-top:2px;font-family:Inter,sans-serif;">${a.msg}</div>`;
+    box.appendChild(row);
+  });
+  
+  const btn = document.createElement('button');
+  btn.style.cssText = 'width:100%;margin-top:14px;padding:14px;border-radius:10px;background:#f0f0f0;color:#0c0c0c;border:none;font-family:Inter,sans-serif;font-size:14px;font-weight:600;cursor:pointer;-webkit-appearance:none;';
+  btn.textContent = 'Got it';
+  btn.addEventListener('click', () => overlay.remove());
+  btn.addEventListener('touchend', (e) => { e.preventDefault(); overlay.remove(); });
+  box.appendChild(btn);
+  overlay.appendChild(box);
   document.body.appendChild(overlay);
 }
 
@@ -1961,13 +1983,22 @@ function delIncome(i) {
 function openEditSheet(title, html) {
   document.getElementById('editSheetTitle').textContent = title;
   document.getElementById('editSheetContent').innerHTML = html;
-  document.getElementById('editSheet').classList.add('open');
+  const sheet = document.getElementById('editSheet');
+  sheet.classList.add('open');
+  // iOS: scroll sheet to top on open
+  setTimeout(() => {
+    const s = sheet.querySelector('.sheet');
+    if (s) s.scrollTop = 0;
+  }, 50);
 }
 function closeSheet(id) {
   document.getElementById(id).classList.remove('open');
   if (id === 'invSheet' && invChartInst) { invChartInst.destroy(); invChartInst = null; }
 }
-function sheetBgClose(e, id) { if (e.target === e.currentTarget) closeSheet(id); }
+function sheetBgClose(e, id) {
+  // iOS fix: check touch target
+  if (e.target === e.currentTarget) closeSheet(id);
+}
 
 // ═══════════════════════════════════════════════
 // TOAST
@@ -1976,35 +2007,49 @@ function sheetBgClose(e, id) { if (e.target === e.currentTarget) closeSheet(id);
 // CONFIRM DIALOG
 // ═══════════════════════════════════════════════
 function showConfirm(msg, onConfirm) {
-  let overlay = document.getElementById('confirmOverlay');
-  if (!overlay) {
-    overlay = document.createElement('div');
-    overlay.id = 'confirmOverlay';
-    overlay.style.cssText = 'position:fixed;inset:0;z-index:300;background:rgba(0,0,0,0.65);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:20px;';
-    overlay.innerHTML = `<div style="background:var(--bg2);border:0.5px solid var(--border2);border-radius:18px;padding:24px 20px;width:100%;max-width:320px;text-align:center;">
-      <div id="confirmMsg" style="font-size:15px;font-weight:500;margin-bottom:20px;line-height:1.5;"></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-        <button onclick="closeConfirm(false)" style="padding:12px;border-radius:10px;background:var(--bg3);border:0.5px solid var(--border2);color:var(--text2);font-family:var(--font);font-size:14px;font-weight:500;cursor:pointer;">Cancel</button>
-        <button id="confirmOk" style="padding:12px;border-radius:10px;background:var(--red-bg);border:0.5px solid rgba(158,77,77,0.3);color:var(--red);font-family:var(--font);font-size:14px;font-weight:600;cursor:pointer;">Delete</button>
-      </div>
-    </div>`;
-    document.body.appendChild(overlay);
-  }
-  document.getElementById('confirmMsg').textContent = msg;
-  overlay.style.display = 'flex';
-  overlay.onclick = e => { if (e.target === overlay) closeConfirm(false); };
-  window._confirmCb = onConfirm;
+  // Remove existing if any
+  const existing = document.getElementById('confirmOverlay');
+  if (existing) existing.remove();
+  
+  const overlay = document.createElement('div');
+  overlay.id = 'confirmOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:500;background:rgba(0,0,0,0.8);display:flex;align-items:center;justify-content:center;padding:20px;';
+  
+  const box = document.createElement('div');
+  box.style.cssText = 'background:#1c1c1c;border:0.5px solid rgba(255,255,255,0.12);border-radius:18px;padding:24px 20px;width:100%;max-width:320px;text-align:center;position:relative;z-index:501;';
+  
+  const msgEl = document.createElement('div');
+  msgEl.style.cssText = 'font-size:15px;font-weight:500;margin-bottom:20px;line-height:1.5;color:#f0f0f0;font-family:Inter,sans-serif;';
+  msgEl.textContent = msg;
+  
+  const btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:8px;';
+  
+  const cancelBtn = document.createElement('button');
+  cancelBtn.style.cssText = 'padding:14px;border-radius:10px;background:#242424;border:0.5px solid rgba(255,255,255,0.1);color:#888;font-family:Inter,sans-serif;font-size:14px;font-weight:500;cursor:pointer;-webkit-appearance:none;';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.addEventListener('click', () => { overlay.remove(); });
+  cancelBtn.addEventListener('touchend', (e) => { e.preventDefault(); overlay.remove(); });
+  
+  const okBtn = document.createElement('button');
+  okBtn.style.cssText = 'padding:14px;border-radius:10px;background:rgba(158,77,77,0.15);border:0.5px solid rgba(158,77,77,0.3);color:#c87070;font-family:Inter,sans-serif;font-size:14px;font-weight:600;cursor:pointer;-webkit-appearance:none;';
+  okBtn.textContent = 'Delete';
+  okBtn.addEventListener('click', () => { overlay.remove(); if (onConfirm) onConfirm(); });
+  okBtn.addEventListener('touchend', (e) => { e.preventDefault(); overlay.remove(); if (onConfirm) onConfirm(); });
+  
+  btnRow.appendChild(cancelBtn);
+  btnRow.appendChild(okBtn);
+  box.appendChild(msgEl);
+  box.appendChild(btnRow);
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
 }
 window.closeConfirm = function(ok) {
   const overlay = document.getElementById('confirmOverlay');
-  if (overlay) overlay.style.display = 'none';
-  if (ok && window._confirmCb) window._confirmCb();
-  window._confirmCb = null;
+  if (overlay) overlay.remove();
 };
-document.addEventListener('DOMContentLoaded', () => {
-  const ok = document.getElementById('confirmOk');
-  if (ok) ok.onclick = () => closeConfirm(true);
-});
 
 let toastTimer = null;
 function toast(msg, isErr) {
@@ -2034,6 +2079,16 @@ updatePickerUI('revolut');
 renderHome();
 initFirebase();
 setTimeout(checkRecurringAlerts, 1500);
+
+// iOS fix: add touchend to all overlay close actions
+document.querySelectorAll('.overlay').forEach(overlay => {
+  overlay.addEventListener('touchend', (e) => {
+    if (e.target === overlay) {
+      const id = overlay.id;
+      closeSheet(id);
+    }
+  });
+});
 </script>
 </body>
 </html>
