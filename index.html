@@ -2075,6 +2075,9 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catc
 // ═══════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════
+// ONE-TIME RESET: clear all old data keys
+['wv2_data','wv2_phys','portfolioData','physAssets'].forEach(k => localStorage.removeItem(k));
+
 updatePickerUI('revolut');
 renderHome();
 initFirebase();
