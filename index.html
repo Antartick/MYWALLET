@@ -746,6 +746,7 @@ function sanitizeDB(d) {
   });
   if (!d._salary) d._salary = 0;
   if (!d._otherIncome) d._otherIncome = 0;
+  if (!d._incomeHistory) d._incomeHistory = [];
   return d;
 }
 
@@ -882,7 +883,7 @@ function showPage(name, btn) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('page-' + name).classList.add('active');
   btn.classList.add('active');
-  document.getElementById('selectorWrap').style.display = name === 'nw' ? 'none' : 'block';
+  document.getElementById('selectorWrap').style.display = (name === 'nw' || name === 'edit') ? 'none' : 'block';
   renderCurrentPage();
 }
 function renderCurrentPage() {
@@ -1323,17 +1324,19 @@ function renderEdit() {
   const el = document.getElementById('editContent');
 
   if (currentEditTab === 'liquidity') {
+    // Investments tab: no selector for mediolanum
     el.innerHTML = `
-      <div class="card" style="margin-bottom:10px;">
-        <div class="sec-title" style="margin-bottom:12px;">Balance</div>
-        <div class="field-group">
-          <div class="field-label">Current balance (€)</div>
-          <input class="field-input" type="number" id="liqIn" value="${d.liquidity || ''}" placeholder="0.00">
-        </div>
-        <button class="btn-primary" onclick="saveLiq()">Save balance</button>
+      <div style="padding:0 0 10px;">
+        <div class="field-label" style="margin-bottom:6px;">Account</div>
+        <select class="field-select" id="liqAccSel" onchange="switchEditAcc(this.value)">
+          ${Object.entries(ACCOUNTS_META).map(([ak,am]) => `<option value="${ak}" ${ak===k?'selected':''}>${am.name}</option>`).join('')}
+        </select>
       </div>
       <div class="card" style="margin-bottom:10px;">
-        <div class="sec-title" style="margin-bottom:12px;">Add transaction</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <div class="sec-title" style="margin:0;">Add transaction</div>
+          <span class="num num-sm blur-me" style="color:var(--text2);">Balance: ${fmt(d.liquidity)}</span>
+        </div>
         <div class="field-group">
           <div class="field-label">Description</div>
           <input class="field-input" type="text" id="expN" placeholder="e.g. Grocery">
@@ -1366,7 +1369,16 @@ function renderEdit() {
       </div>` : ''}`;
 
   } else if (currentEditTab === 'investments') {
+    // No investments on mediolanum — show fund only; no investments on cash
+    const noInv = k === 'cash';
     el.innerHTML = `
+      <div style="padding:0 0 10px;">
+        <div class="field-label" style="margin-bottom:6px;">Account</div>
+        <select class="field-select" id="invAccSel" onchange="switchEditAcc(this.value)">
+          ${Object.entries(ACCOUNTS_META).filter(([ak])=>ak!=='cash').map(([ak,am]) => `<option value="${ak}" ${ak===k?'selected':''}>${am.name}</option>`).join('')}
+        </select>
+      </div>
+      ${noInv ? '<div class="empty">No investments available for this account.</div>' : `
       <div class="card" style="margin-bottom:10px;">
         <div class="sec-title" style="margin-bottom:12px;">Add investment</div>
         <div class="field-group">
@@ -1378,47 +1390,20 @@ function renderEdit() {
           <div class="search-results" id="searchResults"></div>
         </div>
         <div id="invFormFields" style="display:none;">
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-            <div class="field-group">
-              <div class="field-label">Ticker</div>
-              <input class="field-input" type="text" id="iTicker" placeholder="AAPL" readonly style="color:var(--text2);">
-            </div>
-            <div class="field-group">
-              <div class="field-label">Type</div>
-              <select class="field-select" id="iType">
-                <option value="stock">Stock</option>
-                <option value="etf">ETF</option>
-                <option value="fund">Fund</option>
-                <option value="bond">Bond</option>
-                <option value="crypto">Crypto</option>
-              </select>
-            </div>
-          </div>
           <div class="field-group">
-            <div class="field-label">Full name</div>
-            <input class="field-input" type="text" id="iName" placeholder="Apple Inc.">
+            <div class="field-label">Ticker</div>
+            <input class="field-input" type="text" id="iTicker" readonly style="color:var(--text2);">
           </div>
+          <input type="hidden" id="iName">
+          <input type="hidden" id="iType">
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
             <div class="field-group">
               <div class="field-label">Quantity</div>
               <input class="field-input" type="number" id="iQty" placeholder="10">
             </div>
             <div class="field-group">
-              <div class="field-label">Entry price</div>
+              <div class="field-label">Entry price (€)</div>
               <input class="field-input" type="number" id="iEntry" placeholder="150.00">
-            </div>
-          </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-            <div class="field-group">
-              <div class="field-label">Current price <span style="color:var(--green);font-size:10px;">↓ today</span></div>
-              <input class="field-input" type="number" id="iCurrent" placeholder="180.00">
-            </div>
-            <div class="field-group">
-              <div class="field-label">Currency</div>
-              <select class="field-select" id="iCurrency">
-                <option value="EUR">EUR</option>
-                <option value="USD">USD</option>
-              </select>
             </div>
           </div>
           <div class="field-group">
@@ -1437,7 +1422,7 @@ function renderEdit() {
               <div class="row-icon ticker" style="font-size:${inv.ticker.length>4?'8':'10'}px;">${inv.ticker}</div>
               <div>
                 <div class="row-title">${inv.name}</div>
-                <div class="row-sub">${inv.qty}x @ ${inv.currency==='EUR'?'€':'$'}${inv.entry}</div>
+                <div class="row-sub">${inv.qty}x @ €${inv.entry}</div>
               </div>
             </div>
             <div class="edit-row">
@@ -1446,24 +1431,51 @@ function renderEdit() {
               <button class="del-btn" onclick="delInv(${i})">✕</button>
             </div>
           </div>`).join('')}
-      </div>` : ''}`;
+      </div>` : ''}
+      `}`;
 
   } else if (currentEditTab === 'expenses') {
+    const allRec = Object.values(DB).flatMap(acc => acc.recurring || []);
     el.innerHTML = `
+      <div style="padding:0 0 10px;">
+        <div class="field-label" style="margin-bottom:6px;">Account</div>
+        <select class="field-select" id="expAccSel" onchange="switchEditAcc(this.value)">
+          ${Object.entries(ACCOUNTS_META).map(([ak,am]) => `<option value="${ak}" ${ak===k?'selected':''}>${am.name}</option>`).join('')}
+        </select>
+      </div>
       <div class="card" style="margin-bottom:10px;">
         <div class="sec-title" style="margin-bottom:12px;">Add recurring expense</div>
         <div class="field-group">
           <div class="field-label">Name</div>
           <input class="field-input" type="text" id="rN" placeholder="e.g. Netflix">
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="field-group">
+          <div class="field-label">Frequency</div>
+          <select class="field-select" id="rFreq" onchange="toggleRecFields()">
+            <option value="monthly">Monthly</option>
+            <option value="yearly">Yearly</option>
+          </select>
+        </div>
+        <div id="recMonthlyFields">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+            <div class="field-group">
+              <div class="field-label">Amount (€)</div>
+              <input class="field-input" type="number" id="rA" placeholder="17.99">
+            </div>
+            <div class="field-group">
+              <div class="field-label">Day of month</div>
+              <input class="field-input" type="number" id="rD" min="1" max="31" placeholder="5">
+            </div>
+          </div>
+        </div>
+        <div id="recYearlyFields" style="display:none;">
           <div class="field-group">
-            <div class="field-label">Monthly amount (€)</div>
-            <input class="field-input" type="number" id="rA" placeholder="17.99">
+            <div class="field-label">Amount (€)</div>
+            <input class="field-input" type="number" id="rAY" placeholder="500.00">
           </div>
           <div class="field-group">
-            <div class="field-label">Day of month</div>
-            <input class="field-input" type="number" id="rD" min="1" max="31" placeholder="5">
+            <div class="field-label">Due date (next renewal)</div>
+            <input class="field-input" type="date" id="rDateY">
           </div>
         </div>
         <button class="btn-primary" onclick="addRec()">Add recurring</button>
@@ -1471,40 +1483,74 @@ function renderEdit() {
       ${d.recurring.length ? `
       <div class="card">
         <div class="sec-title" style="margin-bottom:10px;">Recurring (${d.recurring.length})</div>
-        ${d.recurring.map((r, i) => `
-          <div class="history-item">
+        ${d.recurring.map((r, i) => {
+          const isYearly = r.freq === 'yearly';
+          const dueInfo = isYearly ? (r.dueDate || '') : `Day ${r.day} monthly`;
+          const urgency = isYearly ? getRecUrgency(r) : null;
+          return `<div class="history-item">
             <div class="row-left">
               <div class="row-icon">💳</div>
-              <div><div class="row-title">${r.name}</div><div class="row-sub">Day ${r.day} every month</div></div>
+              <div>
+                <div class="row-title">${r.name} ${isYearly ? '<span class="tag" style="font-size:10px;margin-left:4px;">yearly</span>' : ''}</div>
+                <div class="row-sub">${dueInfo}${urgency ? ' · <span style="color:var(--red)">'+urgency+'</span>' : ''}</div>
+              </div>
             </div>
             <div class="edit-row">
               <span class="num num-sm blur-me c-red">-${fmt(r.amount)}</span>
               <button class="edit-btn" onclick="editRec(${i})">✎</button>
               <button class="del-btn" onclick="delRec(${i})">✕</button>
             </div>
-          </div>`).join('')}
+          </div>`;
+        }).join('')}
       </div>` : ''}`;
 
   } else if (currentEditTab === 'assets') {
+    // No account selector at top — assets are global
+    // Income: only for mediolanum
+    const incomeHistory = (DB._incomeHistory || []);
     el.innerHTML = `
       <div class="card" style="margin-bottom:10px;">
-        <div class="sec-title" style="margin-bottom:12px;">Income</div>
+        <div class="sec-title" style="margin-bottom:12px;">Add income</div>
         <div class="field-group">
-          <div class="field-label">Monthly net salary (€)</div>
-          <input class="field-input" type="number" id="salIn" value="${DB._salary || ''}" placeholder="2500">
+          <div class="field-label">Account (income destination)</div>
+          <select class="field-select" id="incomeAccSel">
+            <option value="mediolanum">Mediolanum</option>
+          </select>
         </div>
         <div class="field-group">
-          <div class="field-label">Other monthly income (€)</div>
-          <input class="field-input" type="number" id="otherIn" value="${DB._otherIncome || ''}" placeholder="0">
+          <div class="field-label">Description</div>
+          <input class="field-input" type="text" id="incN" placeholder="e.g. Salary May">
         </div>
-        <button class="btn-primary" onclick="saveIncome()">Save income</button>
+        <div class="field-group">
+          <div class="field-label">Amount (€)</div>
+          <input class="field-input" type="number" id="incA" placeholder="2500">
+        </div>
+        <div class="field-group">
+          <div class="field-label">Date</div>
+          <input class="field-input" type="date" id="incD" value="${today()}">
+        </div>
+        <button class="btn-primary" onclick="addIncome()">Add income</button>
       </div>
+      ${incomeHistory.length ? `
+      <div class="card" style="margin-bottom:10px;">
+        <div class="sec-title" style="margin-bottom:10px;">Income history</div>
+        ${incomeHistory.map((inc, i) => `
+          <div class="history-item">
+            <div class="row-left">
+              <div class="row-icon">💵</div>
+              <div><div class="row-title">${inc.name}</div><div class="row-sub">${inc.date} · ${inc.acc}</div></div>
+            </div>
+            <div class="edit-row">
+              <span class="num num-sm blur-me c-green">+${fmt(inc.amount)}</span>
+              <button class="del-btn" onclick="delIncome(${i})">✕</button>
+            </div>
+          </div>`).join('')}
+      </div>` : ''}
       <div class="card" style="margin-bottom:10px;">
         <div class="sec-title" style="margin-bottom:12px;">Add physical asset</div>
         <div class="field-group">
           <div class="field-label">Type</div>
-          <select class="field-select" id="aType" onchange="updateAssetIcon()">
-            <option value="salary">💵 Salary / Income</option>
+          <select class="field-select" id="aType">
             <option value="car">🚗 Car</option>
             <option value="property">🏠 Property</option>
             <option value="other">💵 Other</option>
@@ -1543,27 +1589,105 @@ function renderEdit() {
 // TICKER SEARCH (static dataset — common assets)
 // ═══════════════════════════════════════════════
 const TICKERS = [
-  { ticker:'AAPL',  name:'Apple Inc.',              type:'stock',  price:185.50, currency:'USD' },
-  { ticker:'MSFT',  name:'Microsoft Corp.',         type:'stock',  price:415.00, currency:'USD' },
-  { ticker:'NVDA',  name:'Nvidia Corp.',            type:'stock',  price:875.00, currency:'USD' },
-  { ticker:'GOOGL', name:'Alphabet Inc.',           type:'stock',  price:175.00, currency:'USD' },
-  { ticker:'AMZN',  name:'Amazon.com Inc.',         type:'stock',  price:190.00, currency:'USD' },
-  { ticker:'META',  name:'Meta Platforms',          type:'stock',  price:510.00, currency:'USD' },
-  { ticker:'TSLA',  name:'Tesla Inc.',              type:'stock',  price:175.00, currency:'USD' },
-  { ticker:'ASML',  name:'ASML Holding',            type:'stock',  price:820.00, currency:'EUR' },
-  { ticker:'NFLX',  name:'Netflix Inc.',            type:'stock',  price:640.00, currency:'USD' },
-  { ticker:'VWCE',  name:'Vanguard FTSE All-World', type:'etf',    price:118.40, currency:'EUR' },
-  { ticker:'IWDA',  name:'iShares Core MSCI World', type:'etf',    price:85.20,  currency:'EUR' },
-  { ticker:'CSPX',  name:'iShares Core S&P 500',   type:'etf',    price:520.00, currency:'USD' },
-  { ticker:'EIMI',  name:'iShares MSCI EM IMI',     type:'etf',    price:26.40,  currency:'USD' },
-  { ticker:'XDWD',  name:'Xtrackers MSCI World',   type:'etf',    price:90.10,  currency:'EUR' },
-  { ticker:'BTC',   name:'Bitcoin',                 type:'crypto', price:96500,  currency:'USD' },
-  { ticker:'ETH',   name:'Ethereum',                type:'crypto', price:3400,   currency:'USD' },
-  { ticker:'SOL',   name:'Solana',                  type:'crypto', price:185.00, currency:'USD' },
-  { ticker:'BNB',   name:'BNB',                     type:'crypto', price:600.00, currency:'USD' },
-  { ticker:'XRP',   name:'XRP',                     type:'crypto', price:2.10,   currency:'USD' },
-  { ticker:'BTP30', name:'BTP Italia 2030',         type:'bond',   price:98.20,  currency:'EUR' },
-  { ticker:'BTP28', name:'BTP Italia 2028',         type:'bond',   price:99.40,  currency:'EUR' },
+  // Stocks – Trade Republic / Revolut
+  { ticker:'AAPL',  name:'Apple Inc.',              type:'stock',  price:170.45 },
+  { ticker:'MSFT',  name:'Microsoft Corp.',         type:'stock',  price:382.10 },
+  { ticker:'NVDA',  name:'Nvidia Corp.',            type:'stock',  price:805.20 },
+  { ticker:'GOOGL', name:'Alphabet Inc.',           type:'stock',  price:161.30 },
+  { ticker:'AMZN',  name:'Amazon.com Inc.',         type:'stock',  price:175.00 },
+  { ticker:'META',  name:'Meta Platforms',          type:'stock',  price:469.50 },
+  { ticker:'TSLA',  name:'Tesla Inc.',              type:'stock',  price:161.00 },
+  { ticker:'ASML',  name:'ASML Holding',            type:'stock',  price:754.60 },
+  { ticker:'NFLX',  name:'Netflix Inc.',            type:'stock',  price:588.40 },
+  { ticker:'AMZN',  name:'Amazon.com',              type:'stock',  price:175.00 },
+  { ticker:'BABA',  name:'Alibaba Group',           type:'stock',  price:78.20  },
+  { ticker:'COIN',  name:'Coinbase Global',         type:'stock',  price:198.30 },
+  { ticker:'PLTR',  name:'Palantir Technologies',   type:'stock',  price:21.50  },
+  { ticker:'SHOP',  name:'Shopify Inc.',            type:'stock',  price:61.80  },
+  { ticker:'SPOT',  name:'Spotify Technology',      type:'stock',  price:278.00 },
+  { ticker:'UBER',  name:'Uber Technologies',       type:'stock',  price:66.40  },
+  { ticker:'ABNB',  name:'Airbnb Inc.',             type:'stock',  price:130.50 },
+  { ticker:'PYPL',  name:'PayPal Holdings',         type:'stock',  price:60.20  },
+  { ticker:'SQ',    name:'Block Inc.',              type:'stock',  price:58.90  },
+  { ticker:'INTC',  name:'Intel Corp.',             type:'stock',  price:19.80  },
+  { ticker:'AMD',   name:'AMD',                     type:'stock',  price:155.60 },
+  { ticker:'QCOM',  name:'Qualcomm Inc.',           type:'stock',  price:152.30 },
+  { ticker:'ORCL',  name:'Oracle Corp.',            type:'stock',  price:112.40 },
+  { ticker:'CRM',   name:'Salesforce Inc.',         type:'stock',  price:263.10 },
+  { ticker:'ADBE',  name:'Adobe Inc.',              type:'stock',  price:358.20 },
+  { ticker:'NOW',   name:'ServiceNow Inc.',         type:'stock',  price:715.00 },
+  { ticker:'SNOW',  name:'Snowflake Inc.',          type:'stock',  price:128.50 },
+  { ticker:'MSTR',  name:'MicroStrategy',           type:'stock',  price:320.00 },
+  { ticker:'DIS',   name:'Walt Disney Co.',         type:'stock',  price:95.40  },
+  { ticker:'NKE',   name:'Nike Inc.',               type:'stock',  price:70.50  },
+  { ticker:'SBUX',  name:'Starbucks Corp.',         type:'stock',  price:78.30  },
+  { ticker:'JPM',   name:'JPMorgan Chase',          type:'stock',  price:196.50 },
+  { ticker:'GS',    name:'Goldman Sachs',           type:'stock',  price:480.20 },
+  { ticker:'BAC',   name:'Bank of America',         type:'stock',  price:37.80  },
+  { ticker:'V',     name:'Visa Inc.',               type:'stock',  price:267.40 },
+  { ticker:'MA',    name:'Mastercard Inc.',         type:'stock',  price:446.80 },
+  { ticker:'BRK.B', name:'Berkshire Hathaway B',   type:'stock',  price:397.60 },
+  { ticker:'JNJ',   name:'Johnson & Johnson',       type:'stock',  price:148.20 },
+  { ticker:'PFE',   name:'Pfizer Inc.',             type:'stock',  price:25.60  },
+  { ticker:'MRNA',  name:'Moderna Inc.',            type:'stock',  price:48.90  },
+  { ticker:'LLY',   name:'Eli Lilly and Co.',       type:'stock',  price:786.00 },
+  { ticker:'NOVO-B',name:'Novo Nordisk',            type:'stock',  price:62.40  },
+  { ticker:'SAP',   name:'SAP SE',                  type:'stock',  price:191.20 },
+  { ticker:'SIE',   name:'Siemens AG',              type:'stock',  price:178.50 },
+  { ticker:'ALV',   name:'Allianz SE',              type:'stock',  price:269.30 },
+  { ticker:'ADS',   name:'Adidas AG',               type:'stock',  price:226.80 },
+  { ticker:'BMW',   name:'BMW AG',                  type:'stock',  price:74.20  },
+  { ticker:'VOW3',  name:'Volkswagen AG',           type:'stock',  price:88.50  },
+  { ticker:'ENI',   name:'ENI SpA',                 type:'stock',  price:13.80  },
+  { ticker:'ENEL',  name:'Enel SpA',                type:'stock',  price:6.90   },
+  { ticker:'UCG',   name:'UniCredit SpA',           type:'stock',  price:36.20  },
+  { ticker:'ISP',   name:'Intesa Sanpaolo',         type:'stock',  price:3.78   },
+  // ETF
+  { ticker:'VWCE',  name:'Vanguard FTSE All-World ETF',      type:'etf', price:118.40 },
+  { ticker:'IWDA',  name:'iShares Core MSCI World ETF',      type:'etf', price:85.20  },
+  { ticker:'CSPX',  name:'iShares Core S&P 500 ETF',        type:'etf', price:479.30 },
+  { ticker:'EIMI',  name:'iShares MSCI EM IMI ETF',          type:'etf', price:26.40  },
+  { ticker:'XDWD',  name:'Xtrackers MSCI World ETF',         type:'etf', price:90.10  },
+  { ticker:'VUSA',  name:'Vanguard S&P 500 ETF',            type:'etf', price:98.60  },
+  { ticker:'SWRD',  name:'SPDR MSCI World ETF',             type:'etf', price:44.20  },
+  { ticker:'IEMA',  name:'iShares MSCI EM ETF',             type:'etf', price:27.80  },
+  { ticker:'XDWT',  name:'Xtrackers MSCI World Tech ETF',   type:'etf', price:42.10  },
+  { ticker:'IUIT',  name:'iShares S&P 500 IT Sector ETF',   type:'etf', price:65.80  },
+  { ticker:'BTCE',  name:'ETC Bitcoin ETP (TR)',            type:'etf', price:52.30  },
+  { ticker:'ZPRV',  name:'SPDR S&P 400 US Mid Cap ETF',     type:'etf', price:74.50  },
+  { ticker:'ISAC',  name:'iShares MSCI ACWI ETF',           type:'etf', price:108.20 },
+  { ticker:'PPFB',  name:'iShares MSCI World Small Cap ETF',type:'etf', price:8.90   },
+  // Commodities / ETC
+  { ticker:'PHAU',  name:'WisdomTree Physical Gold',        type:'etf', price:196.40 },
+  { ticker:'PHSP',  name:'WisdomTree Physical Silver',      type:'etf', price:28.60  },
+  { ticker:'CRUD',  name:'WisdomTree Crude Oil ETC',        type:'etf', price:14.20  },
+  { ticker:'AUCO',  name:'Amundi Physical Gold ETC',        type:'etf', price:185.30 },
+  // Bonds
+  { ticker:'BTP30', name:'BTP Italia 2030',                 type:'bond', price:98.20 },
+  { ticker:'BTP28', name:'BTP Italia 2028',                 type:'bond', price:99.40 },
+  { ticker:'IBTE',  name:'iShares EUR Govt Bond 1-3yr ETF', type:'bond', price:97.80 },
+  { ticker:'IEGE',  name:'iShares Core Euro Govt Bond ETF', type:'bond', price:108.40},
+  // Crypto – Binance / TR / Revolut
+  { ticker:'BTC',   name:'Bitcoin',          type:'crypto', price:88780  },
+  { ticker:'ETH',   name:'Ethereum',         type:'crypto', price:3128   },
+  { ticker:'SOL',   name:'Solana',           type:'crypto', price:170.20 },
+  { ticker:'BNB',   name:'BNB',              type:'crypto', price:552.00 },
+  { ticker:'XRP',   name:'XRP',              type:'crypto', price:1.93   },
+  { ticker:'ADA',   name:'Cardano',          type:'crypto', price:0.42   },
+  { ticker:'AVAX',  name:'Avalanche',        type:'crypto', price:28.50  },
+  { ticker:'DOT',   name:'Polkadot',         type:'crypto', price:5.80   },
+  { ticker:'MATIC', name:'Polygon',          type:'crypto', price:0.48   },
+  { ticker:'LINK',  name:'Chainlink',        type:'crypto', price:11.20  },
+  { ticker:'UNI',   name:'Uniswap',          type:'crypto', price:7.40   },
+  { ticker:'DOGE',  name:'Dogecoin',         type:'crypto', price:0.148  },
+  { ticker:'SHIB',  name:'Shiba Inu',        type:'crypto', price:0.0000136 },
+  { ticker:'LTC',   name:'Litecoin',         type:'crypto', price:78.40  },
+  { ticker:'ATOM',  name:'Cosmos',           type:'crypto', price:4.20   },
+  { ticker:'FIL',   name:'Filecoin',         type:'crypto', price:3.80   },
+  { ticker:'NEAR',  name:'NEAR Protocol',    type:'crypto', price:3.20   },
+  { ticker:'SUI',   name:'Sui',              type:'crypto', price:2.10   },
+  { ticker:'TON',   name:'Toncoin',          type:'crypto', price:3.40   },
+  { ticker:'PEPE',  name:'Pepe',             type:'crypto', price:0.0000098 },
 ];
 
 function searchTicker(q) {
@@ -1612,6 +1736,7 @@ function addExp() {
   const dt = document.getElementById('expD').value;
   if (!n || isNaN(a)) return toast('Fill all fields', true);
   DB[currentAcc].expenses.unshift({ id: uid(), name: n, amount: a, date: dt });
+  DB[currentAcc].liquidity = (DB[currentAcc].liquidity || 0) + a;
   save(); renderEdit(); toast('Transaction added');
 }
 function delExp(i) { showConfirm('Delete this transaction?', () => { DB[currentAcc].expenses.splice(i, 1); save(); renderEdit(); }); }
@@ -1635,15 +1760,16 @@ window.saveEditExp = function(i) {
 
 function addInv() {
   const ticker = document.getElementById('iTicker').value.trim().toUpperCase();
-  const name = document.getElementById('iName').value.trim();
-  const type = document.getElementById('iType').value;
+  const name = document.getElementById('iName').value.trim() || ticker;
+  const type = document.getElementById('iType').value || 'stock';
   const qty = parseFloat(document.getElementById('iQty').value);
   const entry = parseFloat(document.getElementById('iEntry').value);
-  const current = parseFloat(document.getElementById('iCurrent').value);
-  const currency = document.getElementById('iCurrency').value;
   const date = document.getElementById('iDate').value;
-  if (!ticker || !name || isNaN(qty) || isNaN(entry) || isNaN(current)) return toast('Fill all fields', true);
-  DB[currentAcc].investments.push({ id: uid(), ticker, name, type, qty, entry, current, currency, date });
+  // current = entry by default, user can update later
+  const t = TICKERS.find(t => t.ticker === ticker);
+  const current = t ? t.price : entry;
+  if (!ticker || isNaN(qty) || isNaN(entry)) return toast('Fill all fields', true);
+  DB[currentAcc].investments.push({ id: uid(), ticker, name, type, qty, entry, current, currency:'EUR', date });
   save(); renderEdit(); toast('Investment added');
 }
 function delInv(i) { showConfirm('Delete this investment?', () => { DB[currentAcc].investments.splice(i, 1); save(); renderEdit(); }); }
@@ -1665,30 +1791,119 @@ window.saveEditInv = function(i) {
   save(); closeSheet('editSheet'); renderEdit(); toast('Saved');
 };
 
+function toggleRecFields() {
+  const freq = document.getElementById('rFreq').value;
+  document.getElementById('recMonthlyFields').style.display = freq === 'monthly' ? 'block' : 'none';
+  document.getElementById('recYearlyFields').style.display = freq === 'yearly' ? 'block' : 'none';
+}
+
+function getRecUrgency(r) {
+  if (!r.dueDate) return null;
+  const due = new Date(r.dueDate);
+  const now = new Date();
+  const diff = Math.ceil((due - now) / (1000 * 60 * 60 * 24));
+  if (diff < 0) return 'Overdue';
+  if (diff === 0) return 'Due today';
+  if (diff <= 7) return `${diff}d left`;
+  if (diff <= 30) return `${diff}d left`;
+  return null;
+}
+
+function checkRecurringAlerts() {
+  const allRec = Object.values(DB).flatMap(acc => (acc.recurring || []));
+  const alerts = [];
+  allRec.forEach(r => {
+    if (r.freq !== 'yearly' || !r.dueDate) return;
+    const due = new Date(r.dueDate);
+    const now = new Date();
+    const diff = Math.ceil((due - now) / (1000 * 60 * 60 * 24));
+    if (diff < 0) alerts.push({ name: r.name, msg: `Overdue since ${r.dueDate}` });
+    else if (diff <= 7) alerts.push({ name: r.name, msg: `Due in ${diff} day${diff===1?'':'s'}` });
+    else if (diff <= 30) alerts.push({ name: r.name, msg: `Due in ${diff} days` });
+  });
+  if (alerts.length) {
+    const lastAlert = localStorage.getItem('lastAlertDate');
+    const todayStr = today();
+    if (lastAlert !== todayStr) {
+      localStorage.setItem('lastAlertDate', todayStr);
+      showRecAlert(alerts);
+    }
+  }
+}
+
+function showRecAlert(alerts) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:400;background:rgba(0,0,0,0.7);backdrop-filter:blur(6px);display:flex;align-items:flex-start;justify-content:center;padding:60px 20px 20px;';
+  overlay.innerHTML = `<div style="background:var(--bg2);border:0.5px solid var(--border2);border-radius:18px;padding:20px;width:100%;max-width:380px;">
+    <div style="font-size:15px;font-weight:600;margin-bottom:14px;">⚠️ Upcoming renewals</div>
+    ${alerts.map(a => `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:0.5px solid var(--border);">
+      <div>
+        <div style="font-size:13px;font-weight:500;">💳 ${a.name}</div>
+        <div style="font-size:12px;color:var(--red);margin-top:2px;">${a.msg}</div>
+      </div>
+    </div>`).join('')}
+    <button onclick="this.closest('div').parentElement.remove()" style="width:100%;margin-top:14px;padding:12px;border-radius:10px;background:var(--text);color:var(--bg);border:none;font-family:var(--font);font-size:14px;font-weight:600;cursor:pointer;">Got it</button>
+  </div>`;
+  document.body.appendChild(overlay);
+}
+
 function addRec() {
   const n = document.getElementById('rN').value.trim();
-  const a = parseFloat(document.getElementById('rA').value);
-  const day = parseInt(document.getElementById('rD').value);
-  if (!n || isNaN(a) || isNaN(day)) return toast('Fill all fields', true);
-  DB[currentAcc].recurring.push({ id: uid(), name: n, amount: a, day });
+  const freq = document.getElementById('rFreq').value;
+  if (!n) return toast('Fill all fields', true);
+  if (freq === 'monthly') {
+    const a = parseFloat(document.getElementById('rA').value);
+    const day = parseInt(document.getElementById('rD').value);
+    if (isNaN(a) || isNaN(day)) return toast('Fill all fields', true);
+    DB[currentAcc].recurring.push({ id: uid(), name: n, amount: a, day, freq: 'monthly' });
+  } else {
+    const a = parseFloat(document.getElementById('rAY').value);
+    const dueDate = document.getElementById('rDateY').value;
+    if (isNaN(a) || !dueDate) return toast('Fill all fields', true);
+    DB[currentAcc].recurring.push({ id: uid(), name: n, amount: a, dueDate, freq: 'yearly', paid: false });
+  }
   save(); renderEdit(); toast('Recurring added');
 }
 function delRec(i) { showConfirm('Delete this recurring expense?', () => { DB[currentAcc].recurring.splice(i, 1); save(); renderEdit(); }); }
 function editRec(i) {
   const r = DB[currentAcc].recurring[i];
+  const isY = r.freq === 'yearly';
   openEditSheet('Edit recurring', `
     <div class="field-group"><div class="field-label">Name</div>
       <input class="field-input" id="er_n" value="${r.name}"></div>
-    <div class="field-group"><div class="field-label">Amount (€/mo)</div>
+    <div class="field-group"><div class="field-label">Amount (€)</div>
       <input class="field-input" type="number" id="er_a" value="${r.amount}"></div>
-    <div class="field-group"><div class="field-label">Day</div>
-      <input class="field-input" type="number" id="er_d" value="${r.day}"></div>
+    ${isY ? `
+    <div class="field-group"><div class="field-label">Due date</div>
+      <input class="field-input" type="date" id="er_date" value="${r.dueDate||''}"></div>
+    <div style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--bg3);border-radius:var(--radius-sm);margin-bottom:12px;">
+      <input type="checkbox" id="er_paid" ${r.paid?'checked':''} style="width:18px;height:18px;cursor:pointer;accent-color:var(--green);">
+      <label for="er_paid" style="font-size:13px;font-weight:500;cursor:pointer;">Mark as paid for this year</label>
+    </div>` : `
+    <div class="field-group"><div class="field-label">Day of month</div>
+      <input class="field-input" type="number" id="er_d" value="${r.day||1}"></div>`}
     <button class="btn-primary" onclick="saveEditRec(${i})">Save</button>`);
 }
 window.saveEditRec = function(i) {
-  DB[currentAcc].recurring[i].name = document.getElementById('er_n').value.trim();
-  DB[currentAcc].recurring[i].amount = parseFloat(document.getElementById('er_a').value);
-  DB[currentAcc].recurring[i].day = parseInt(document.getElementById('er_d').value);
+  const r = DB[currentAcc].recurring[i];
+  r.name = document.getElementById('er_n').value.trim();
+  r.amount = parseFloat(document.getElementById('er_a').value);
+  if (r.freq === 'yearly') {
+    r.dueDate = document.getElementById('er_date').value;
+    const paidEl = document.getElementById('er_paid');
+    if (paidEl && paidEl.checked) {
+      // Mark paid: advance due date by 1 year
+      r.paid = true;
+      if (r.dueDate) {
+        const d = new Date(r.dueDate);
+        d.setFullYear(d.getFullYear() + 1);
+        r.dueDate = d.toISOString().split('T')[0];
+        r.paid = false;
+      }
+    }
+  } else {
+    r.day = parseInt(document.getElementById('er_d').value);
+  }
   save(); closeSheet('editSheet'); renderEdit(); toast('Saved');
 };
 
@@ -1718,10 +1933,26 @@ window.saveEditPhys = function(i) {
   save(); closeSheet('editSheet'); renderEdit(); toast('Saved');
 };
 
-function saveIncome() {
-  DB._salary = parseFloat(document.getElementById('salIn').value) || 0;
-  DB._otherIncome = parseFloat(document.getElementById('otherIn').value) || 0;
-  save(); toast('Income saved');
+function addIncome() {
+  const acc = document.getElementById('incomeAccSel').value;
+  const n = document.getElementById('incN').value.trim();
+  const a = parseFloat(document.getElementById('incA').value);
+  const dt = document.getElementById('incD').value;
+  if (!n || isNaN(a) || a <= 0) return toast('Fill all fields', true);
+  // Add to liquidity of destination account
+  DB[acc].liquidity = (DB[acc].liquidity || 0) + a;
+  DB[acc].expenses.unshift({ id: uid(), name: n + ' (income)', amount: a, date: dt });
+  // Store in income history
+  if (!DB._incomeHistory) DB._incomeHistory = [];
+  DB._incomeHistory.unshift({ id: uid(), name: n, amount: a, date: dt, acc: ACCOUNTS_META[acc].name });
+  save(); renderEdit(); toast('Income added ✓');
+}
+function delIncome(i) {
+  showConfirm('Delete this income entry? This will not reverse the balance.', () => {
+    if (!DB._incomeHistory) return;
+    DB._incomeHistory.splice(i, 1);
+    save(); renderEdit();
+  });
 }
 
 // ═══════════════════════════════════════════════
@@ -1789,6 +2020,7 @@ function toast(msg, isErr) {
 // UTILS
 // ═══════════════════════════════════════════════
 function uid() { return Math.random().toString(36).slice(2, 10); }
+function switchEditAcc(k) { currentAcc = k; updatePickerUI(k); document.getElementById('accountSelect').value = k; renderEdit(); }
 
 // ═══════════════════════════════════════════════
 // SERVICE WORKER
@@ -1801,6 +2033,7 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catc
 updatePickerUI('revolut');
 renderHome();
 initFirebase();
+setTimeout(checkRecurringAlerts, 1500);
 </script>
 </body>
 </html>
