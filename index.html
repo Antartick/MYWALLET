@@ -508,20 +508,82 @@ body {
 @media (prefers-reduced-motion: reduce) {
   *, .sheet { animation: none !important; transition: opacity 0.2s ease !important; }
 }
+
+/* ── LOGIN SCREEN ── */
+#loginScreen {
+  position: fixed; inset: 0; z-index: 1000;
+  background: var(--bg);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  padding: 40px 32px;
+  transition: opacity 300ms var(--ease-out);
+}
+#loginScreen.hidden { opacity: 0; pointer-events: none; }
+.login-logo {
+  width: 72px; height: 72px; border-radius: 20px;
+  background: var(--bg3); border: 0.5px solid var(--border2);
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 28px;
+}
+.login-logo svg { width: 32px; height: 32px; stroke: var(--text); fill: none; stroke-width: 1.6; stroke-linecap: round; }
+.login-title { font-size: 26px; font-weight: 600; letter-spacing: -0.8px; margin-bottom: 8px; }
+.login-sub { font-size: 14px; color: var(--text2); margin-bottom: 48px; text-align: center; line-height: 1.5; }
+.btn-google {
+  width: 100%; padding: 15px 20px;
+  background: var(--bg2); border: 0.5px solid var(--border2);
+  border-radius: var(--radius); cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 12px;
+  font-family: var(--font); font-size: 15px; font-weight: 500; color: var(--text);
+  transition: background 150ms var(--ease-out), transform 120ms var(--ease-out);
+  -webkit-appearance: none;
+}
+.btn-google:active { background: var(--bg3); transform: scale(0.98); }
+.login-footer { font-size: 11px; color: var(--text3); margin-top: 24px; text-align: center; line-height: 1.6; }
+
+/* ── USER AVATAR ── */
+.user-avatar {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: var(--bg3); border: 0.5px solid var(--border2);
+  overflow: hidden; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 600; color: var(--text2);
+  flex-shrink: 0;
+}
+.user-avatar img { width: 100%; height: 100%; object-fit: cover; }
 </style>
 </head>
 <body>
 
+<!-- LOGIN SCREEN -->
+<div id="loginScreen">
+  <div class="login-logo">
+    <svg viewBox="0 0 24 24"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+  </div>
+  <div class="login-title">Wallet</div>
+  <div class="login-sub">Your personal portfolio tracker.<br>Sign in to access your data.</div>
+  <button class="btn-google" id="googleSignInBtn">
+    <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/></svg>
+    Continue with Google
+  </button>
+  <div class="login-footer">Your data is stored privately.<br>Only you can access your wallet.</div>
+</div>
+
 <!-- TOPBAR -->
-<div class="topbar">
+<div class="topbar" id="mainTopbar" style="display:none;">
   <div style="display:flex;align-items:center;gap:8px;">
     <div class="sync-dot" id="syncDot" title="Sync status"></div>
     <span class="app-wordmark">Wallet</span>
   </div>
-  <button class="btn-icon" id="blurBtn" onclick="toggleBlur()" title="Hide amounts">
-    <svg viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-  </button>
+  <div style="display:flex;gap:8px;align-items:center;">
+    <button class="btn-icon" id="blurBtn" onclick="toggleBlur()" title="Hide amounts">
+      <svg viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+    </button>
+    <div class="user-avatar" id="userAvatar" onclick="showSignOut()"></div>
+  </div>
 </div>
+
+<!-- MAIN APP (hidden until logged in) -->
+<div id="mainApp" style="display:none;">
 
 <!-- ACCOUNT SELECTOR -->
 <div class="selector-wrap" id="selectorWrap">
@@ -654,6 +716,8 @@ body {
 
 <div id="toast"></div>
 
+</div><!-- end mainApp -->
+
 <script>
 // ═══════════════════════════════════════════════
 // DATA
@@ -696,6 +760,7 @@ const FB_CONFIG = {
   appId: "1:1044540194573:web:3766e5e70d14e13d443a44"
 };
 let fbRef = null, fbPhysRef = null, syncTimer = null;
+let currentUser = null;
 
 function setSyncDot(state) {
   const dot = document.getElementById('syncDot');
@@ -703,44 +768,105 @@ function setSyncDot(state) {
   dot.className = 'sync-dot ' + state;
 }
 
+function showMainApp(user) {
+  currentUser = user;
+  // Update avatar
+  const av = document.getElementById('userAvatar');
+  if (user.photoURL) {
+    av.innerHTML = `<img src="${user.photoURL}" alt="${user.displayName}">`;
+  } else {
+    av.textContent = (user.displayName || user.email || 'U')[0].toUpperCase();
+  }
+  // Show app, hide login
+  document.getElementById('loginScreen').classList.add('hidden');
+  document.getElementById('mainTopbar').style.display = 'flex';
+  document.getElementById('mainApp').style.display = 'block';
+  // Set user-scoped DB refs
+  const db = firebase.database();
+  fbRef = db.ref('users/' + user.uid + '/data');
+  fbPhysRef = db.ref('users/' + user.uid + '/phys');
+  db.ref('.info/connected').on('value', snap => {
+    setSyncDot(snap.val() ? 'green' : 'red');
+  });
+  fbRef.on('value', snap => {
+    const v = snap.val();
+    if (v) { DB = sanitizeDB(v); localStorage.setItem('wv2_data', JSON.stringify(DB)); renderCurrentPage(); }
+  });
+  fbPhysRef.on('value', snap => {
+    const v = snap.val();
+    if (v) { PHYS = Array.isArray(v) ? v : Object.values(v); localStorage.setItem('wv2_phys', JSON.stringify(PHYS)); }
+  });
+  setTimeout(checkRecurringAlerts, 1500);
+}
+
+function showSignOut() {
+  showConfirm('Sign out from Wallet?', () => {
+    firebase.auth().signOut().then(() => {
+      localStorage.removeItem('wv2_data');
+      localStorage.removeItem('wv2_phys');
+      document.getElementById('loginScreen').classList.remove('hidden');
+      document.getElementById('mainTopbar').style.display = 'none';
+      document.getElementById('mainApp').style.display = 'none';
+      currentUser = null; fbRef = null; fbPhysRef = null;
+    });
+  });
+}
+
 function initFirebase() {
   setSyncDot('');
-  const s1 = document.createElement('script');
-  s1.src = 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js';
-  s1.onload = () => {
-    const s2 = document.createElement('script');
-    s2.src = 'https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js';
-    s2.onload = () => {
-      try {
-        if (!firebase.apps.length) firebase.initializeApp(FB_CONFIG);
-        const db = firebase.database();
-        fbRef = db.ref('wallet/data');
-        fbPhysRef = db.ref('wallet/phys');
+  const scripts = [
+    'https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js',
+    'https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js',
+    'https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js',
+  ];
+  function loadScript(i) {
+    if (i >= scripts.length) { onFirebaseReady(); return; }
+    const s = document.createElement('script');
+    s.src = scripts[i];
+    s.onload = () => loadScript(i + 1);
+    s.onerror = () => setSyncDot('red');
+    document.head.appendChild(s);
+  }
+  loadScript(0);
+}
 
-        // Connection state monitor
-        db.ref('.info/connected').on('value', snap => {
-          if (snap.val() === true) {
-            setSyncDot('green');
-          } else {
-            setSyncDot('red');
-          }
-        });
+function onFirebaseReady() {
+  try {
+    if (!firebase.apps.length) firebase.initializeApp(FB_CONFIG);
 
-        fbRef.on('value', snap => {
-          const v = snap.val();
-          if (v) { DB = sanitizeDB(v); localStorage.setItem('wv2_data', JSON.stringify(DB)); renderCurrentPage(); }
-        });
-        fbPhysRef.on('value', snap => {
-          const v = snap.val();
-          if (v) { PHYS = Array.isArray(v) ? v : Object.values(v); localStorage.setItem('wv2_phys', JSON.stringify(PHYS)); }
-        });
-      } catch(e) { console.warn('Firebase error', e); setSyncDot('red'); }
-    };
-    s2.onerror = () => setSyncDot('red');
-    document.head.appendChild(s2);
-  };
-  s1.onerror = () => setSyncDot('red');
-  document.head.appendChild(s1);
+    // Google sign-in button
+    document.getElementById('googleSignInBtn').addEventListener('click', () => {
+      const provider = new firebase.auth.GoogleAuthProvider();
+      firebase.auth().signInWithPopup(provider).catch(err => {
+        // Popup blocked on iOS — fallback to redirect
+        firebase.auth().signInWithRedirect(provider);
+      });
+    });
+    document.getElementById('googleSignInBtn').addEventListener('touchend', (e) => {
+      e.preventDefault();
+      const provider = new firebase.auth.GoogleAuthProvider();
+      firebase.auth().signInWithPopup(provider).catch(() => {
+        firebase.auth().signInWithRedirect(provider);
+      });
+    });
+
+    // Auth state — fires on load if already logged in (persistent session)
+    firebase.auth().onAuthStateChanged(user => {
+      if (user) {
+        showMainApp(user);
+      } else {
+        // Show login screen
+        document.getElementById('loginScreen').classList.remove('hidden');
+        setSyncDot('red');
+      }
+    });
+
+    // Handle redirect result (iOS fallback)
+    firebase.auth().getRedirectResult().then(result => {
+      if (result && result.user) showMainApp(result.user);
+    }).catch(() => {});
+
+  } catch(e) { console.warn('Firebase error', e); setSyncDot('red'); }
 }
 
 function sanitizeDB(d) {
@@ -2076,9 +2202,7 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catc
 // INIT
 // ═══════════════════════════════════════════════
 updatePickerUI('revolut');
-renderHome();
 initFirebase();
-setTimeout(checkRecurringAlerts, 1500);
 
 // iOS fix: add touchend to all overlay close actions
 document.querySelectorAll('.overlay').forEach(overlay => {
