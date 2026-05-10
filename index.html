@@ -808,10 +808,12 @@ function invPct(inv) { return (invGain(inv) / invCostEur(inv)) * 100; }
 function applyDueRecurring(k) {
   // Auto-deduct recurring expenses when their day has passed this month
   const d = DB[k];
+  if (!d || !d.recurring) return;
   const now = new Date();
   const todayDay = now.getDate();
   const monthKey = now.getFullYear() + '-' + (now.getMonth() + 1);
   if (!d._appliedMonths) d._appliedMonths = {};
+  if (!d.expenses) d.expenses = [];
   d.recurring.forEach(r => {
     const rKey = r.id + '_' + monthKey;
     if (!d._appliedMonths[rKey] && todayDay >= r.day) {
