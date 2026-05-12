@@ -508,6 +508,8 @@ body {
 @media (prefers-reduced-motion: reduce) {
   *, .sheet { animation: none !important; transition: opacity 0.2s ease !important; }
 }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+.spinning { animation: spin 1s linear infinite; }
 
 /* ── LOGIN SCREEN ── */
 #loginScreen {
@@ -572,9 +574,15 @@ body {
 <div class="topbar" id="mainTopbar" style="display:none;">
   <div style="display:flex;align-items:center;gap:8px;">
     <div class="sync-dot" id="syncDot" title="Sync status"></div>
-    <span class="app-wordmark">Wallet</span>
+    <span class="app-wordmark" id="userDisplayName">Ceo.</span>
+  </div>
+  <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;position:absolute;left:50%;transform:translateX(-50%);">
+    <span style="font-size:10px;color:var(--text3);font-weight:500;letter-spacing:0.3px;" id="priceUpdateTime">—</span>
   </div>
   <div style="display:flex;gap:8px;align-items:center;">
+    <button class="btn-icon" id="refreshBtn" onclick="manualRefreshPrices()" title="Refresh prices">
+      <svg viewBox="0 0 24 24" id="refreshIcon"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+    </button>
     <button class="btn-icon" id="blurBtn" onclick="toggleBlur()" title="Hide amounts">
       <svg viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
     </button>
@@ -781,6 +789,13 @@ function showMainApp(user) {
   document.getElementById('loginScreen').classList.add('hidden');
   document.getElementById('mainTopbar').style.display = 'flex';
   document.getElementById('mainApp').style.display = 'block';
+  // Show first name in topbar
+  const firstName = (user.displayName || 'You').split(' ')[0];
+  const nameEl = document.getElementById('userDisplayName');
+  if (nameEl) nameEl.textContent = firstName + '.';
+  restorePriceUpdateTime();
+  // Auto-refresh prices on login
+  setTimeout(() => refreshAllPrices(true), 2000);
   // Set user-scoped DB refs
   const db = firebase.database();
   fbRef = db.ref('users/' + user.uid + '/data');
@@ -921,6 +936,113 @@ function save() {
 }
 
 // ═══════════════════════════════════════════════
+// PRICE FETCHING
+// ═══════════════════════════════════════════════
+const CRYPTO_IDS = {
+  BTC:'bitcoin', ETH:'ethereum', SOL:'solana', BNB:'binancecoin',
+  XRP:'ripple', ADA:'cardano', AVAX:'avalanche-2', DOT:'polkadot',
+  MATIC:'matic-network', LINK:'chainlink', UNI:'uniswap', DOGE:'dogecoin',
+  SHIB:'shiba-inu', LTC:'litecoin', ATOM:'cosmos', FIL:'filecoin',
+  NEAR:'near', SUI:'sui', TON:'the-open-network', PEPE:'pepe',
+};
+
+// Yahoo Finance proxy via allorigins
+async function fetchYahooPrice(ticker) {
+  const sym = ticker.replace('.','') ;
+  // try EUR suffix for european stocks
+  const suffixes = ['', '.MI', '.DE', '.AS', '.PA', '.L', ''];
+  for (const suf of suffixes) {
+    try {
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${sym}${suf}?interval=1d&range=1d`;
+      const proxy = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+      const r = await fetch(proxy, { signal: AbortSignal.timeout(5000) });
+      const d = await r.json();
+      const price = d?.chart?.result?.[0]?.meta?.regularMarketPrice;
+      if (price && price > 0) {
+        const currency = d?.chart?.result?.[0]?.meta?.currency || 'USD';
+        return { price, currency };
+      }
+    } catch(e) { continue; }
+  }
+  return null;
+}
+
+async function fetchCryptoPrice(ticker) {
+  const id = CRYPTO_IDS[ticker.toUpperCase()];
+  if (!id) return null;
+  try {
+    const r = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${id}&vs_currencies=eur`, { signal: AbortSignal.timeout(5000) });
+    const d = await r.json();
+    const price = d?.[id]?.eur;
+    if (price && price > 0) return { price, currency: 'EUR' };
+  } catch(e) {}
+  return null;
+}
+
+async function fetchPrice(inv) {
+  if (inv.type === 'crypto') return fetchCryptoPrice(inv.ticker);
+  return fetchYahooPrice(inv.ticker);
+}
+
+let isRefreshing = false;
+
+async function refreshAllPrices(silent) {
+  if (isRefreshing) return;
+  isRefreshing = true;
+  const icon = document.getElementById('refreshIcon');
+  if (icon) icon.classList.add('spinning');
+  if (!silent) toast('Updating prices...');
+
+  let updated = 0;
+  const allInvs = [];
+  for (const [k, d] of Object.entries(DB)) {
+    if (!d.investments) continue;
+    d.investments.forEach((inv, i) => allInvs.push({ k, i, inv }));
+  }
+
+  // Batch fetch with small delay to avoid rate limits
+  for (const { k, i, inv } of allInvs) {
+    try {
+      const result = await fetchPrice(inv);
+      if (result && result.price > 0) {
+        let price = result.price;
+        // Convert to EUR if USD
+        if (result.currency === 'USD') price = price * USDEUR;
+        DB[k].investments[i].current = parseFloat(price.toFixed(4));
+        updated++;
+      }
+    } catch(e) {}
+    // small delay between requests
+    await new Promise(r => setTimeout(r, 150));
+  }
+
+  if (updated > 0) {
+    const now = new Date();
+    const timeStr = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
+    localStorage.setItem('lastPriceUpdate', timeStr);
+    document.getElementById('priceUpdateTime').textContent = 'Updated ' + timeStr;
+    save();
+    renderCurrentPage();
+    if (!silent) toast(`${updated} prices updated ✓`);
+  } else {
+    if (!silent) toast('Could not fetch prices', true);
+  }
+
+  if (icon) icon.classList.remove('spinning');
+  isRefreshing = false;
+}
+
+function manualRefreshPrices() {
+  refreshAllPrices(false);
+}
+
+function restorePriceUpdateTime() {
+  const t = localStorage.getItem('lastPriceUpdate');
+  const el = document.getElementById('priceUpdateTime');
+  if (t && el) el.textContent = 'Updated ' + t;
+}
+
+// ═══════════════════════════════════════════════
 // FORMATTERS
 // ═══════════════════════════════════════════════
 function fmt(n) {
@@ -975,9 +1097,17 @@ function applyDueRecurring(k) {
 function accSummary(k) {
   const d = DB[k];
   const investments = d.investments.reduce((s, i) => s + invValEur(i), 0);
-  const recurring = d.recurring.reduce((s, r) => s + r.amount, 0);
-  // recurring shown as proportion only — not subtracted from total (auto-deduct happens via applyDueRecurring)
-  return { liquidity: d.liquidity, investments, recurring, total: d.liquidity + investments };
+  // Only show monthly impact of recurring (not yet deducted ones)
+  const now = new Date(); const todayDay = now.getDate();
+  const monthKey = now.getFullYear() + '-' + (now.getMonth() + 1);
+  const recurringMonthly = d.recurring.filter(r => {
+    if (r.freq === 'monthly') {
+      const rKey = r.id + '_' + monthKey;
+      return !(d._appliedMonths && d._appliedMonths[rKey]);
+    }
+    return false;
+  }).reduce((s, r) => s + r.amount, 0);
+  return { liquidity: d.liquidity, investments, recurring: recurringMonthly, total: d.liquidity + investments };
 }
 
 // ═══════════════════════════════════════════════
@@ -1022,6 +1152,8 @@ function showPage(name, btn) {
   renderCurrentPage();
 }
 function renderCurrentPage() {
+  // Apply recurring deductions on every render
+  Object.keys(ACCOUNTS_META).forEach(k => applyDueRecurring(k));
   const active = document.querySelector('.page.active');
   if (!active) return;
   const id = active.id;
@@ -1044,11 +1176,13 @@ const SLICE_LABELS = { liquidity: 'Liquidity', investments: 'Investments', recur
 let pieInst = null;
 
 function renderHome() {
-  applyDueRecurring(currentAcc);
   const s = accSummary(currentAcc);
   const d = DB[currentAcc];
   document.getElementById('homeTotalVal').textContent = fmt(s.total);
-  const ytd = d.ytd || 0;
+  // Calculate real YTD from investments P&L
+  const invTotal = d.investments.reduce((s, inv) => s + invValEur(inv), 0);
+  const invCost = d.investments.reduce((s, inv) => s + invCostEur(inv), 0);
+  const ytd = invCost > 0 ? ((invTotal - invCost) / invCost) * 100 : 0;
   document.getElementById('homeYtdTag').textContent = fmtPct(ytd) + ' YTD';
   document.getElementById('homeYtdTag').className = 'tag ' + tagClass(ytd);
   buildPie(s);
@@ -1911,18 +2045,25 @@ function delInv(i) { showConfirm('Delete this investment?', () => { DB[currentAc
 function editInv(i) {
   const inv = DB[currentAcc].investments[i];
   openEditSheet('Edit investment', `
+    <div style="background:var(--bg3);border-radius:var(--radius-sm);padding:12px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <div class="label" style="margin-bottom:3px;">Current market price</div>
+        <div class="num num-md" style="color:var(--text);">€ ${inv.current?.toFixed(2) || '—'}</div>
+      </div>
+      <div style="font-size:20px;">${inv.ticker}</div>
+    </div>
     <div class="field-group"><div class="field-label">Quantity</div>
       <input class="field-input" type="number" id="ei_q" value="${inv.qty}"></div>
-    <div class="field-group"><div class="field-label">Entry price</div>
+    <div class="field-group"><div class="field-label">Entry price (€)</div>
       <input class="field-input" type="number" id="ei_e" value="${inv.entry}"></div>
-    <div class="field-group"><div class="field-label">Current price</div>
-      <input class="field-input" type="number" id="ei_c" value="${inv.current}"></div>
+    <div class="field-group"><div class="field-label">Entry date</div>
+      <input class="field-input" type="date" id="ei_d" value="${inv.date || ''}"></div>
     <button class="btn-primary" onclick="saveEditInv(${i})">Save</button>`);
 }
 window.saveEditInv = function(i) {
   DB[currentAcc].investments[i].qty = parseFloat(document.getElementById('ei_q').value);
   DB[currentAcc].investments[i].entry = parseFloat(document.getElementById('ei_e').value);
-  DB[currentAcc].investments[i].current = parseFloat(document.getElementById('ei_c').value);
+  DB[currentAcc].investments[i].date = document.getElementById('ei_d').value;
   save(); closeSheet('editSheet'); renderEdit(); toast('Saved');
 };
 
