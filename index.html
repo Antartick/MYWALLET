@@ -673,8 +673,6 @@ body {
       <button class="seg-btn active" onclick="setEditTab('liquidity',this)" style="flex:1;white-space:nowrap;">Liquidity</button>
       <button class="seg-btn" onclick="setEditTab('investments',this)" style="flex:1;white-space:nowrap;">Invest.</button>
       <button class="seg-btn" onclick="setEditTab('expenses',this)" style="flex:1;white-space:nowrap;">Expenses</button>
-      <button class="seg-btn" onclick="setEditTab('transfer',this)" style="flex:1;white-space:nowrap;">Transfer</button>
-      <button class="seg-btn" onclick="setEditTab('sell',this)" style="flex:1;white-space:nowrap;">Sell</button>
       <button class="seg-btn" onclick="setEditTab('assets',this)" style="flex:1;white-space:nowrap;">Assets</button>
     </div>
     </div>
@@ -1319,14 +1317,16 @@ function renderDetail(slice) {
         <span class="tag">${d.expenses.length}</span>
       </div>
       <div style="max-height:220px;overflow-y:auto;">
-        ${d.expenses.map(e => `
-          <div class="row-item">
+        ${d.expenses.map(e => {
+          const isTr = e.name && e.name.startsWith('Transfer');
+          return `<div class="row-item">
             <div class="row-left">
-              <div class="row-icon">💵</div>
+              <div class="row-icon">${isTr ? '⇄' : '💵'}</div>
               <div><div class="row-title">${e.name}</div><div class="row-sub">${e.date}</div></div>
             </div>
-            <div class="num num-sm blur-me ${colorClass(e.amount)}">${e.amount >= 0 ? '+' : ''}${fmt(e.amount)}</div>
-          </div>`).join('')}
+            <div class="num num-sm blur-me" style="color:${isTr ? '#b87a3a' : (e.amount >= 0 ? 'var(--green)' : 'var(--red)')}">${e.amount >= 0 ? '+' : ''}${fmt(e.amount)}</div>
+          </div>`;
+        }).join('')}
       </div>`;
 
   } else if (slice === 'investments') {
@@ -1606,6 +1606,8 @@ function renderNW() {
     totRec += d.recurring.reduce((s, r) => s + r.amount, 0);
     d.investments.forEach(inv => { totInvGross += invValEur(inv); totInvNet += invNetAfterAllTax(inv); });
   }
+  // Transfers are internal movements — they're already reflected in each account's liquidity
+  // so no adjustment needed. The totLiq already shows the correct net after transfers.
   const physTotal = PHYS.reduce((s, a) => s + a.value, 0);
   const gross = totLiq + totInvGross + physTotal;
   const net = totLiq + totInvNet + physTotal;
@@ -1726,16 +1728,68 @@ function renderEdit() {
       ${d.expenses.length ? `
       <div class="card">
         <div class="sec-title" style="margin-bottom:10px;">History (${d.expenses.length})</div>
-        ${d.expenses.map((e, i) => `
-          <div class="history-item">
+        ${d.expenses.map((e, i) => {
+          const isTransfer = e.name && e.name.startsWith('Transfer');
+          return `<div class="history-item">
             <div class="row-left">
-              <div class="row-icon">💵</div>
+              <div class="row-icon">${isTransfer ? '⇄' : '💵'}</div>
               <div><div class="row-title">${e.name}</div><div class="row-sub">${e.date}</div></div>
             </div>
             <div class="edit-row">
-              <span class="num num-sm blur-me ${colorClass(e.amount)}">${e.amount >= 0 ? '+' : ''}${fmt(e.amount)}</span>
-              <button class="edit-btn" onclick="editExp(${i})">✎</button>
+              <span class="num num-sm blur-me" style="color:${isTransfer ? '#b87a3a' : (e.amount >= 0 ? 'var(--green)' : 'var(--red)' )}">${e.amount >= 0 ? '+' : ''}${fmt(e.amount)}</span>
+              ${isTransfer ? '' : `<button class="edit-btn" onclick="editExp(${i})">✎</button>`}
               <button class="del-btn" onclick="delExp(${i})">✕</button>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>` : ''}
+
+      <div class="card" style="margin-top:10px;">
+        <div class="sec-title" style="margin-bottom:12px;">Transfer to another account</div>
+        <div class="field-group">
+          <div class="field-label">From</div>
+          <select class="field-select" id="trFrom">
+            ${Object.entries(ACCOUNTS_META).map(([ak,am]) => `<option value="${ak}" ${ak===k?'selected':''}>${am.name} (${fmt(DB[ak].liquidity)})</option>`).join('')}
+          </select>
+        </div>
+        <div class="field-group">
+          <div class="field-label">To</div>
+          <select class="field-select" id="trTo">
+            ${Object.entries(ACCOUNTS_META).filter(([ak])=>ak!==k).map(([ak,am]) => `<option value="${ak}">${am.name} (${fmt(DB[ak].liquidity)})</option>`).join('')}
+          </select>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div class="field-group">
+            <div class="field-label">Amount (€)</div>
+            <input class="field-input" type="number" id="trAmount" placeholder="500.00">
+          </div>
+          <div class="field-group">
+            <div class="field-label">Date</div>
+            <input class="field-input" type="date" id="trDate" value="${today()}">
+          </div>
+        </div>
+        <div class="field-group">
+          <div class="field-label">Note (optional)</div>
+          <input class="field-input" type="text" id="trNote" placeholder="e.g. Monthly savings">
+        </div>
+        <button class="btn-primary" onclick="addTransfer()">Transfer</button>
+      </div>
+
+      ${(DB._transfers||[]).length ? `
+      <div class="card" style="margin-top:10px;">
+        <div class="sec-title" style="margin-bottom:10px;">Transfer history</div>
+        ${(DB._transfers||[]).map((t,i) => `
+          <div class="history-item">
+            <div class="row-left">
+              <div class="row-icon" style="font-size:16px;">⇄</div>
+              <div>
+                <div class="row-title">${t.note || 'Transfer'}</div>
+                <div class="row-sub">${ACCOUNTS_META[t.from]?.name} → ${ACCOUNTS_META[t.to]?.name} · ${t.date}</div>
+              </div>
+            </div>
+            <div class="edit-row">
+              <span class="num num-sm blur-me" style="color:#b87a3a;">${fmt(t.amount)}</span>
+              <button class="del-btn" onclick="delTransfer(${i})">✕</button>
             </div>
           </div>`).join('')}
       </div>` : ''}`;
@@ -1824,6 +1878,61 @@ function renderEdit() {
             </div>
           </div>`).join('')}
       </div>` : ''}
+
+      <div class="card" style="margin-top:10px;">
+        <div class="sec-title" style="margin-bottom:12px;">Record a sale</div>
+        <div class="field-group">
+          <div class="field-label">Select investment</div>
+          <select class="field-select" id="sellInvSel" onchange="updateSellForm()">
+            <option value="">— choose —</option>
+            ${Object.entries(DB).flatMap(([ak,d2]) => (d2.investments||[]).map((inv,i) => ({acc:ak,i,inv}))).map(({acc,i,inv}) => `<option value="${acc}__${i}">${inv.ticker} (${ACCOUNTS_META[acc]?.name}) · ${inv.qty} units</option>`).join('')}
+          </select>
+        </div>
+        <div id="sellFormFields" style="display:none;">
+          <div style="background:var(--bg3);border-radius:var(--radius-sm);padding:12px;margin-bottom:12px;" id="sellSummary"></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+            <div class="field-group">
+              <div class="field-label">Qty to sell</div>
+              <input class="field-input" type="number" id="sellQty" placeholder="5" oninput="updateSellPreview()">
+            </div>
+            <div class="field-group">
+              <div class="field-label">Sale price per unit (€)</div>
+              <input class="field-input" type="number" id="sellPrice" placeholder="180.00" oninput="updateSellPreview()">
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+            <div class="field-group">
+              <div class="field-label">Sale fee (€)</div>
+              <input class="field-input" type="number" id="sellFee" placeholder="1.00" value="1" oninput="updateSellPreview()">
+            </div>
+            <div class="field-group">
+              <div class="field-label">Date</div>
+              <input class="field-input" type="date" id="sellDate" value="${today()}">
+            </div>
+          </div>
+          <div style="background:var(--bg3);border-radius:var(--radius-sm);padding:12px;margin-bottom:12px;" id="sellPreview"></div>
+          <button class="btn-primary" onclick="recordSale()">Record sale</button>
+        </div>
+      </div>
+
+      ${(DB._saleHistory||[]).length ? `
+      <div class="card" style="margin-top:10px;">
+        <div class="sec-title" style="margin-bottom:10px;">Sale history</div>
+        ${(DB._saleHistory||[]).map((s,i) => `
+          <div class="history-item">
+            <div class="row-left">
+              <div class="row-icon ticker" style="font-size:10px;">${s.ticker}</div>
+              <div>
+                <div class="row-title">${s.ticker} · ${s.qty} sold</div>
+                <div class="row-sub">${s.date} · Net: ${fmt(s.netProceeds)}</div>
+              </div>
+            </div>
+            <div class="edit-row">
+              <span class="num num-sm blur-me ${colorClass(s.gain)}">${s.gain >= 0 ? '+' : ''}${fmt(s.gain)}</span>
+              <button class="del-btn" onclick="delSale(${i})">✕</button>
+            </div>
+          </div>`).join('')}
+      </div>` : ''}
       `}`;
 
   } else if (currentEditTab === 'expenses') {
@@ -1894,118 +2003,6 @@ function renderEdit() {
             </div>
           </div>`;
         }).join('')}
-      </div>` : ''}`;
-
-  } else if (currentEditTab === 'transfer') {
-    const otherAccounts = Object.entries(ACCOUNTS_META).filter(([ak]) => ak !== k);
-    el.innerHTML = `
-      <div class="card" style="margin-bottom:10px;">
-        <div class="sec-title" style="margin-bottom:12px;">Transfer between accounts</div>
-        <div class="field-group">
-          <div class="field-label">From account</div>
-          <select class="field-select" id="trFrom" onchange="switchEditAcc(this.value)">
-            ${Object.entries(ACCOUNTS_META).map(([ak,am]) => `<option value="${ak}" ${ak===k?'selected':''}>${am.name} (${fmt(DB[ak].liquidity)})</option>`).join('')}
-          </select>
-        </div>
-        <div class="field-group">
-          <div class="field-label">To account</div>
-          <select class="field-select" id="trTo">
-            ${Object.entries(ACCOUNTS_META).filter(([ak])=>ak!==k).map(([ak,am]) => `<option value="${ak}">${am.name} (${fmt(DB[ak].liquidity)})</option>`).join('')}
-          </select>
-        </div>
-        <div class="field-group">
-          <div class="field-label">Amount (€)</div>
-          <input class="field-input" type="number" id="trAmount" placeholder="500.00">
-        </div>
-        <div class="field-group">
-          <div class="field-label">Date</div>
-          <input class="field-input" type="date" id="trDate" value="${today()}">
-        </div>
-        <div class="field-group">
-          <div class="field-label">Note (optional)</div>
-          <input class="field-input" type="text" id="trNote" placeholder="e.g. Monthly savings">
-        </div>
-        <button class="btn-primary" onclick="addTransfer()">Transfer</button>
-      </div>
-      ${(DB._transfers||[]).length ? `
-      <div class="card">
-        <div class="sec-title" style="margin-bottom:10px;">Transfer history</div>
-        ${(DB._transfers||[]).map((t,i) => `
-          <div class="history-item">
-            <div class="row-left">
-              <div class="row-icon" style="font-size:16px;">⇄</div>
-              <div>
-                <div class="row-title">${t.note || 'Transfer'}</div>
-                <div class="row-sub">${ACCOUNTS_META[t.from]?.name} → ${ACCOUNTS_META[t.to]?.name} · ${t.date}</div>
-              </div>
-            </div>
-            <div class="edit-row">
-              <span class="num num-sm blur-me">${fmt(t.amount)}</span>
-              <button class="del-btn" onclick="delTransfer(${i})">✕</button>
-            </div>
-          </div>`).join('')}
-      </div>` : ''}`;
-
-  } else if (currentEditTab === 'sell') {
-    // Collect all investments across all accounts
-    const allInvs = [];
-    Object.entries(DB).forEach(([ak, d]) => {
-      if (!d.investments) return;
-      d.investments.forEach((inv, i) => allInvs.push({ acc: ak, i, inv }));
-    });
-    el.innerHTML = `
-      <div class="card" style="margin-bottom:10px;">
-        <div class="sec-title" style="margin-bottom:12px;">Record a sale</div>
-        <div class="field-group">
-          <div class="field-label">Select investment</div>
-          <select class="field-select" id="sellInvSel" onchange="updateSellForm()">
-            <option value="">— choose —</option>
-            ${allInvs.map(({acc,i,inv}) => `<option value="${acc}__${i}">${inv.ticker} (${ACCOUNTS_META[acc]?.name}) · ${inv.qty} units</option>`).join('')}
-          </select>
-        </div>
-        <div id="sellFormFields" style="display:none;">
-          <div style="background:var(--bg3);border-radius:var(--radius-sm);padding:12px;margin-bottom:12px;" id="sellSummary"></div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-            <div class="field-group">
-              <div class="field-label">Qty to sell</div>
-              <input class="field-input" type="number" id="sellQty" placeholder="5" oninput="updateSellPreview()">
-            </div>
-            <div class="field-group">
-              <div class="field-label">Sale price per unit (€)</div>
-              <input class="field-input" type="number" id="sellPrice" placeholder="180.00" oninput="updateSellPreview()">
-            </div>
-          </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-            <div class="field-group">
-              <div class="field-label">Sale fee (€)</div>
-              <input class="field-input" type="number" id="sellFee" placeholder="1.00" value="1" oninput="updateSellPreview()">
-            </div>
-            <div class="field-group">
-              <div class="field-label">Date</div>
-              <input class="field-input" type="date" id="sellDate" value="${today()}">
-            </div>
-          </div>
-          <div style="background:var(--bg3);border-radius:var(--radius-sm);padding:12px;margin-bottom:12px;" id="sellPreview"></div>
-          <button class="btn-primary" onclick="recordSale()">Record sale</button>
-        </div>
-      </div>
-      ${(DB._saleHistory||[]).length ? `
-      <div class="card">
-        <div class="sec-title" style="margin-bottom:10px;">Sale history</div>
-        ${(DB._saleHistory||[]).map((s,i) => `
-          <div class="history-item">
-            <div class="row-left">
-              <div class="row-icon ticker" style="font-size:10px;">${s.ticker}</div>
-              <div>
-                <div class="row-title">${s.ticker} · ${s.qty} sold</div>
-                <div class="row-sub">${s.date} · Net: ${fmt(s.netProceeds)}</div>
-              </div>
-            </div>
-            <div class="edit-row">
-              <span class="num num-sm blur-me ${colorClass(s.gain)}">${s.gain >= 0 ? '+' : ''}${fmt(s.gain)}</span>
-              <button class="del-btn" onclick="delSale(${i})">✕</button>
-            </div>
-          </div>`).join('')}
       </div>` : ''}`;
 
   } else if (currentEditTab === 'assets') {
