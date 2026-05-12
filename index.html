@@ -1043,6 +1043,55 @@ function restorePriceUpdateTime() {
 }
 
 // ═══════════════════════════════════════════════
+// TAX & FEE CALCULATIONS
+// ═══════════════════════════════════════════════
+
+// Italian stocks subject to Tobin Tax
+const ITALIAN_STOCKS = ['ENI','ENEL','UCG','ISP','STM','G','MB','PRY','TIT','FCA','RACE','BAMI','UNI','AZM','CPR','BPE','CERV','MED'];
+
+function isTobinTaxable(inv) {
+  return inv.type === 'stock' && ITALIAN_STOCKS.includes(inv.ticker.toUpperCase());
+}
+
+// Tobin Tax: 0.1% on purchase of Italian stocks
+function calcTobinTax(inv) {
+  if (!isTobinTaxable(inv)) return 0;
+  return invCostEur(inv) * 0.001;
+}
+
+// Broker fee on purchase
+function calcBrokerFee(inv) {
+  return inv.fee || 0;
+}
+
+// Annual stamp duty (bollo): 0.2% of portfolio value — shown as annual cost
+function calcAnnualBollo(inv) {
+  return invValEur(inv) * 0.002;
+}
+
+// Real cost basis including fees and Tobin Tax
+function invRealCostEur(inv) {
+  return invCostEur(inv) + calcBrokerFee(inv) + calcTobinTax(inv);
+}
+
+// Real gain after fees
+function invRealGain(inv) {
+  return invValEur(inv) - invRealCostEur(inv);
+}
+
+// Net after all Italian taxes on sale
+function invNetAfterAllTax(inv) {
+  const gain = invRealGain(inv);
+  const tr = taxRate(inv);
+  // For crypto: exempt if gain < 2000 total
+  if (inv.type === 'crypto' && gain < 2000) return invValEur(inv);
+  const cgt = gain > 0 ? gain * tr : 0;
+  // Tobin Tax on sale too (if Italian stock)
+  const tobinSale = isTobinTaxable(inv) ? invValEur(inv) * 0.001 : 0;
+  return invValEur(inv) - cgt - tobinSale;
+}
+
+// ═══════════════════════════════════════════════
 // FORMATTERS
 // ═══════════════════════════════════════════════
 function fmt(n) {
@@ -1068,7 +1117,7 @@ function invCostEur(inv) {
   return inv.currency === 'USD' ? c * USDEUR : c;
 }
 function invGain(inv) { return invValEur(inv) - invCostEur(inv); }
-function invNetAfterTax(inv) {
+function invNetAfterAllTax(inv) {
   const g = invGain(inv);
   if (g <= 0) return invValEur(inv);
   return invValEur(inv) - g * taxRate(inv);
@@ -1286,7 +1335,7 @@ function renderDetail(slice) {
       </div>
       <div style="max-height:220px;overflow-y:auto;">
         ${d.investments.map(inv => {
-          const g = invGain(inv); const p = invPct(inv);
+          const g = invRealGain(inv); const p = (g / invRealCostEur(inv)) * 100;
           return `<div class="row-item" style="cursor:pointer;" onclick="openInvSheet('${currentAcc}','${inv.id}')">
             <div class="row-left">
               <div class="row-icon ticker">${inv.ticker}</div>
@@ -1336,8 +1385,8 @@ function renderInv() {
   }
   el.className = 'stagger';
   el.innerHTML = d.investments.map(inv => {
-    const g = invGain(inv); const p = invPct(inv);
-    const net = invNetAfterTax(inv);
+    const g = invRealGain(inv); const p = (g / invRealCostEur(inv)) * 100;
+    const net = invNetAfterAllTax(inv);
     return `
     <div class="card" style="margin-bottom:8px;cursor:pointer;" onclick="openInvSheet('${currentAcc}','${inv.id}')">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;">
@@ -1375,7 +1424,7 @@ function openInvSheet(acc, invId) {
 
 function buildInvSheet(inv) {
   const val = invValEur(inv); const cost = invCostEur(inv);
-  const g = invGain(inv); const p = invPct(inv);
+  const g = invRealGain(inv); const p = (g / invRealCostEur(inv)) * 100;
   const tr = taxRate(inv); const tax = g > 0 ? g * tr : 0;
   const net = val - tax;
   const taxLabel = tr === 0.125 ? '12.5% (Gov. Bond)' : `${(tr * 100).toFixed(0)}%`;
@@ -1406,27 +1455,38 @@ function buildInvSheet(inv) {
     </div>
 
     <div class="tax-box">
-      <div style="font-size:12px;font-weight:600;margin-bottom:10px;">After-tax value (Italy)</div>
+      <div style="font-size:12px;font-weight:600;margin-bottom:10px;">Full cost breakdown (Italy)</div>
+      ${inv.fee > 0 ? `<div style="display:flex;justify-content:space-between;font-size:13px;color:var(--text2);margin-bottom:4px;"><span>Broker fee (buy)</span><span class="blur-me c-red">-${fmt(inv.fee)}</span></div>` : ''}
+      ${inv.tobinTax > 0 ? `<div style="display:flex;justify-content:space-between;font-size:13px;color:var(--text2);margin-bottom:4px;"><span>Tobin Tax buy (0.1%)</span><span class="blur-me c-red">-${fmt(inv.tobinTax)}</span></div>` : ''}
+      ${isTobinTaxable(inv) ? `<div style="display:flex;justify-content:space-between;font-size:13px;color:var(--text2);margin-bottom:4px;"><span>Tobin Tax sell (0.1%)</span><span class="blur-me c-red">-${fmt(invValEur(inv)*0.001)}</span></div>` : ''}
       <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--text2);margin-bottom:4px;">
-        <span>Tax rate ${taxLabel}</span>
-        <span class="blur-me c-red">-${fmt(tax)}</span>
+        <span>Capital gains tax ${taxLabel}</span>
+        <span class="blur-me c-red">-${fmt(Math.max(0, invRealGain(inv)) * taxRate(inv))}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text3);margin-bottom:8px;">
+        <span>Annual stamp duty (0.2%)</span>
+        <span class="blur-me">≈ -${fmt(calcAnnualBollo(inv))}/yr</span>
       </div>
       <div class="div"></div>
       <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:600;">
-        <span>Net value</span>
-        <span class="blur-me c-green">${fmt(net)}</span>
+        <span>Net if sold now</span>
+        <span class="blur-me c-green">${fmt(invNetAfterAllTax(inv))}</span>
       </div>
-      <div style="font-size:11px;color:var(--text3);margin-top:8px;">*Capital gains tax (imposta sostitutiva). Crypto exempt below €2,000/yr gain.</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:6px;">*Imposta sostitutiva. Crypto exempt below €2,000/yr gain.</div>
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;">
-      <div style="background:var(--bg3);border-radius:var(--radius-sm);padding:12px;">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:12px;">
+      <div style="background:var(--bg3);border-radius:var(--radius-sm);padding:10px;">
         <div class="label">Cost basis</div>
-        <div class="num num-sm blur-me" style="margin-top:5px;">${fmt(cost)}</div>
+        <div class="num num-sm blur-me" style="margin-top:4px;">${fmt(invRealCostEur(inv))}</div>
       </div>
-      <div style="background:var(--bg3);border-radius:var(--radius-sm);padding:12px;">
-        <div class="label">Asset type</div>
-        <div style="font-size:13px;font-weight:500;margin-top:5px;">${inv.type.toUpperCase()}</div>
+      <div style="background:var(--bg3);border-radius:var(--radius-sm);padding:10px;">
+        <div class="label">Broker</div>
+        <div style="font-size:12px;font-weight:500;margin-top:4px;">${inv.broker || '—'}</div>
+      </div>
+      <div style="background:var(--bg3);border-radius:var(--radius-sm);padding:10px;">
+        <div class="label">Type</div>
+        <div style="font-size:12px;font-weight:500;margin-top:4px;">${inv.type.toUpperCase()}</div>
       </div>
     </div>`;
 
@@ -1504,7 +1564,7 @@ function renderNW() {
     if (!d.liquidity && d.liquidity !== 0) continue;
     totLiq += d.liquidity;
     totRec += d.recurring.reduce((s, r) => s + r.amount, 0);
-    d.investments.forEach(inv => { totInvGross += invValEur(inv); totInvNet += invNetAfterTax(inv); });
+    d.investments.forEach(inv => { totInvGross += invValEur(inv); totInvNet += invNetAfterAllTax(inv); });
   }
   const physTotal = PHYS.reduce((s, a) => s + a.value, 0);
   const gross = totLiq + totInvGross + physTotal;
@@ -1564,6 +1624,9 @@ function renderNW() {
       </div>
       <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--text2);padding:6px 0;border-bottom:0.5px solid var(--border);">
         <span>Investments (gross)</span><span class="blur-me">${fmt(totInvGross)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--text2);padding:6px 0;border-bottom:0.5px solid var(--border);">
+        <span>Est. annual stamp duty (0.2%)</span><span class="blur-me c-red">-${fmt(totInvGross * 0.002)}/yr</span>
       </div>
       <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--text2);padding:6px 0;border-bottom:0.5px solid var(--border);">
         <span>Recurring / mo</span><span class="blur-me c-red">-${fmt(totRec)}</span>
@@ -1678,6 +1741,26 @@ function renderEdit() {
           <div class="field-group">
             <div class="field-label">Entry date</div>
             <input class="field-input" type="date" id="iDate" value="${today()}">
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+            <div class="field-group">
+              <div class="field-label">Broker</div>
+              <select class="field-select" id="iBroker">
+                <option value="traderep">Trade Republic</option>
+                <option value="revolut">Revolut</option>
+                <option value="binance">Binance</option>
+                <option value="mediolanum">Mediolanum</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div class="field-group">
+              <div class="field-label">Fee paid (€)</div>
+              <input class="field-input" type="number" id="iFee" placeholder="1.00" step="0.01">
+            </div>
+          </div>
+          <div style="background:var(--bg3);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:12px;font-size:11px;color:var(--text2);line-height:1.6;">
+            TR: €1/order · Revolut: free or 0.25% · Binance: 0.1%<br>
+            Tobin Tax auto-calculated for Italian stocks (0.1%)
           </div>
           <button class="btn-primary" onclick="addInv()">Add investment</button>
         </div>
@@ -2034,11 +2117,17 @@ function addInv() {
   const qty = parseFloat(document.getElementById('iQty').value);
   const entry = parseFloat(document.getElementById('iEntry').value);
   const date = document.getElementById('iDate').value;
-  // current = entry by default, user can update later
+  const broker = document.getElementById('iBroker')?.value || 'other';
+  const fee = parseFloat(document.getElementById('iFee')?.value) || 0;
   const t = TICKERS.find(t => t.ticker === ticker);
   const current = t ? t.price : entry;
   if (!ticker || isNaN(qty) || isNaN(entry)) return toast('Fill all fields', true);
-  DB[currentAcc].investments.push({ id: uid(), ticker, name, type, qty, entry, current, currency:'EUR', date });
+  const inv = { id: uid(), ticker, name, type, qty, entry, current, currency:'EUR', date, broker, fee };
+  // Auto-calculate Tobin Tax and add to fee if Italian stock
+  if (isTobinTaxable(inv)) {
+    inv.tobinTax = invCostEur(inv) * 0.001;
+  }
+  DB[currentAcc].investments.push(inv);
   save(); renderEdit(); toast('Investment added');
 }
 function delInv(i) { showConfirm('Delete this investment?', () => { DB[currentAcc].investments.splice(i, 1); save(); renderEdit(); }); }
@@ -2050,20 +2139,31 @@ function editInv(i) {
         <div class="label" style="margin-bottom:3px;">Current market price</div>
         <div class="num num-md" style="color:var(--text);">€ ${inv.current?.toFixed(2) || '—'}</div>
       </div>
-      <div style="font-size:20px;">${inv.ticker}</div>
+      <div style="text-align:right;">
+        <div style="font-size:18px;font-weight:700;">${inv.ticker}</div>
+        <div style="font-size:11px;color:var(--text2);">${inv.broker || ''}</div>
+      </div>
     </div>
     <div class="field-group"><div class="field-label">Quantity</div>
       <input class="field-input" type="number" id="ei_q" value="${inv.qty}"></div>
-    <div class="field-group"><div class="field-label">Entry price (€)</div>
-      <input class="field-input" type="number" id="ei_e" value="${inv.entry}"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+      <div class="field-group"><div class="field-label">Entry price (€)</div>
+        <input class="field-input" type="number" id="ei_e" value="${inv.entry}"></div>
+      <div class="field-group"><div class="field-label">Fee paid (€)</div>
+        <input class="field-input" type="number" id="ei_fee" value="${inv.fee || 0}" step="0.01"></div>
+    </div>
     <div class="field-group"><div class="field-label">Entry date</div>
       <input class="field-input" type="date" id="ei_d" value="${inv.date || ''}"></div>
     <button class="btn-primary" onclick="saveEditInv(${i})">Save</button>`);
 }
 window.saveEditInv = function(i) {
-  DB[currentAcc].investments[i].qty = parseFloat(document.getElementById('ei_q').value);
-  DB[currentAcc].investments[i].entry = parseFloat(document.getElementById('ei_e').value);
-  DB[currentAcc].investments[i].date = document.getElementById('ei_d').value;
+  const inv = DB[currentAcc].investments[i];
+  inv.qty = parseFloat(document.getElementById('ei_q').value);
+  inv.entry = parseFloat(document.getElementById('ei_e').value);
+  inv.fee = parseFloat(document.getElementById('ei_fee').value) || 0;
+  inv.date = document.getElementById('ei_d').value;
+  // Recalculate Tobin Tax if Italian stock
+  if (isTobinTaxable(inv)) inv.tobinTax = invCostEur(inv) * 0.001;
   save(); closeSheet('editSheet'); renderEdit(); toast('Saved');
 };
 
