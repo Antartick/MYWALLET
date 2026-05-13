@@ -672,7 +672,7 @@ body {
     <div style="display:flex;background:var(--bg3);border-radius:var(--radius-sm);padding:3px;gap:2px;min-width:max-content;" id="editTabs">
       <button class="seg-btn active" onclick="setEditTab('liquidity',this)" style="flex:1;white-space:nowrap;">Liquidity</button>
       <button class="seg-btn" onclick="setEditTab('investments',this)" style="flex:1;white-space:nowrap;">Invest.</button>
-      <button class="seg-btn" onclick="setEditTab('expenses',this)" style="flex:1;white-space:nowrap;">Expenses</button>
+      <button class="seg-btn" onclick="setEditTab('expenses',this)" style="flex:1;white-space:nowrap;">Recurring</button>
       <button class="seg-btn" onclick="setEditTab('assets',this)" style="flex:1;white-space:nowrap;">Assets</button>
     </div>
     </div>
@@ -792,9 +792,7 @@ function showMainApp(user) {
   document.getElementById('mainTopbar').style.display = 'flex';
   document.getElementById('mainApp').style.display = 'block';
   // Show first name in topbar
-  const firstName = (user.displayName || 'You').split(' ')[0];
-  const nameEl = document.getElementById('userDisplayName');
-  if (nameEl) nameEl.textContent = firstName + '.';
+  // Name stays as "Ceo." — don't overwrite
   restorePriceUpdateTime();
   // Auto-refresh prices on login
   setTimeout(() => refreshAllPrices(true), 2000);
@@ -1461,24 +1459,26 @@ function buildInvSheet(inv) {
     </div>
 
     <div class="tax-box">
-      <div style="font-size:12px;font-weight:600;margin-bottom:10px;">Full cost breakdown (Italy)</div>
-      ${inv.fee > 0 ? `<div style="display:flex;justify-content:space-between;font-size:13px;color:var(--text2);margin-bottom:4px;"><span>Broker fee (buy)</span><span class="blur-me c-red">-${fmt(inv.fee)}</span></div>` : ''}
-      ${inv.tobinTax > 0 ? `<div style="display:flex;justify-content:space-between;font-size:13px;color:var(--text2);margin-bottom:4px;"><span>Tobin Tax buy (0.1%)</span><span class="blur-me c-red">-${fmt(inv.tobinTax)}</span></div>` : ''}
-      ${isTobinTaxable(inv) ? `<div style="display:flex;justify-content:space-between;font-size:13px;color:var(--text2);margin-bottom:4px;"><span>Tobin Tax sell (0.1%)</span><span class="blur-me c-red">-${fmt(invValEur(inv)*0.001)}</span></div>` : ''}
+      <div style="font-size:12px;font-weight:600;margin-bottom:10px;">Net if sold now (Italy)</div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--text2);margin-bottom:4px;">
+        <span>Current value</span>
+        <span class="blur-me">${fmt(invValEur(inv))}</span>
+      </div>
+      ${inv.type === 'crypto' ? `
+      <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--text2);margin-bottom:4px;">
+        <span>Capital gains tax 26% (crypto)</span>
+        <span class="blur-me c-red">-${fmt(Math.max(0, invRealGain(inv)) * 0.26)}</span>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:8px;">*Esente se plusvalenza annua &lt; €2.000</div>` : `
       <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--text2);margin-bottom:4px;">
         <span>Capital gains tax ${taxLabel}</span>
         <span class="blur-me c-red">-${fmt(Math.max(0, invRealGain(inv)) * taxRate(inv))}</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text3);margin-bottom:8px;">
-        <span>Annual stamp duty (0.2%)</span>
-        <span class="blur-me">≈ -${fmt(calcAnnualBollo(inv))}/yr</span>
-      </div>
+      </div>`}
       <div class="div"></div>
       <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:600;">
-        <span>Net if sold now</span>
+        <span>Netto</span>
         <span class="blur-me c-green">${fmt(invNetAfterAllTax(inv))}</span>
       </div>
-      <div style="font-size:11px;color:var(--text3);margin-top:6px;">*Imposta sostitutiva. Crypto exempt below €2,000/yr gain.</div>
     </div>
 
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:12px;">
@@ -1938,25 +1938,32 @@ function renderEdit() {
       </div>
       ${d.expenses.length ? `
       <div class="card">
-        <div class="sec-title" style="margin-bottom:10px;">History (${d.expenses.length})</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <div class="sec-title" style="margin:0;">History (${d.expenses.length})</div>
+          <div style="display:flex;gap:6px;">
+            <button id="multiSelBtn" onclick="toggleMultiSelect()" style="font-size:11px;padding:4px 10px;border-radius:6px;background:var(--bg3);border:0.5px solid var(--border2);color:var(--text2);cursor:pointer;font-family:var(--font);">Select</button>
+            <button id="multiDelBtn" onclick="deleteSelected()" style="display:none;font-size:11px;padding:4px 10px;border-radius:6px;background:var(--red-bg);border:0.5px solid rgba(158,77,77,0.3);color:var(--red);cursor:pointer;font-family:var(--font);">Delete selected</button>
+          </div>
+        </div>
         ${d.expenses.map((e, i) => {
           const isTransfer = e.name && e.name.startsWith('Transfer');
-          return `<div class="history-item">
-            <div class="row-left">
+          return `<div class="history-item" id="exp-row-${i}">
+            <div class="row-left" style="gap:8px;">
+              <div id="exp-check-${i}" class="multi-check" style="display:none;width:20px;height:20px;border-radius:6px;border:0.5px solid var(--border2);background:var(--bg3);cursor:pointer;flex-shrink:0;align-items:center;justify-content:center;" onclick="toggleExpSelect(${i})"></div>
               <div class="row-icon">${isTransfer ? '⇄' : '💵'}</div>
               <div><div class="row-title">${e.name}</div><div class="row-sub">${e.date}</div></div>
             </div>
             <div class="edit-row">
               <span class="num num-sm blur-me" style="color:${isTransfer ? '#b87a3a' : (e.amount >= 0 ? 'var(--green)' : 'var(--red)' )}">${e.amount >= 0 ? '+' : ''}${fmt(e.amount)}</span>
-              ${isTransfer ? '' : `<button class="edit-btn" onclick="editExp(${i})">✎</button>`}
-              <button class="del-btn" onclick="delExp(${i})">✕</button>
+              ${isTransfer ? '' : `<button class="edit-btn" id="exp-edit-${i}" onclick="editExp(${i})">✎</button>`}
+              <button class="del-btn" id="exp-del-${i}" onclick="delExp(${i})">✕</button>
             </div>
           </div>`;
         }).join('')}
       </div>` : ''}
 
       <div class="card" style="margin-top:10px;">
-        <div class="sec-title" style="margin-bottom:12px;">Transfer to another account</div>
+        <div class="sec-title" style="margin-bottom:12px;">TRANSFER</div>
         <div class="field-group">
           <div class="field-label">From</div>
           <select class="field-select" id="trFrom">
@@ -2113,8 +2120,8 @@ function renderEdit() {
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
             <div class="field-group">
-              <div class="field-label">Sale fee (€)</div>
-              <input class="field-input" type="number" id="sellFee" placeholder="1.00" value="1" oninput="updateSellPreview()">
+              <div class="field-label">Sale fee (€) <span style="color:var(--text3);font-size:10px;">TR=€1 · Rev=0.25% · Binance=0.1%</span></div>
+              <input class="field-input" type="number" id="sellFee" placeholder="1.00" value="1" step="0.01" oninput="updateSellPreview()">
             </div>
             <div class="field-group">
               <div class="field-label">Date</div>
@@ -2952,6 +2959,60 @@ window.closeConfirm = function(ok) {
   const overlay = document.getElementById('confirmOverlay');
   if (overlay) overlay.remove();
 };
+
+// ═══════════════════════════════════════════════
+// MULTI-SELECT DELETE
+// ═══════════════════════════════════════════════
+let multiSelectActive = false;
+let selectedExpenses = new Set();
+
+function toggleMultiSelect() {
+  multiSelectActive = !multiSelectActive;
+  selectedExpenses.clear();
+  const btn = document.getElementById('multiSelBtn');
+  const delBtn = document.getElementById('multiDelBtn');
+  if (btn) btn.textContent = multiSelectActive ? 'Cancel' : 'Select';
+  if (btn) btn.style.color = multiSelectActive ? 'var(--red)' : 'var(--text2)';
+  if (delBtn) delBtn.style.display = 'none';
+  // Show/hide checkboxes and edit/del buttons
+  document.querySelectorAll('.multi-check').forEach(el => {
+    el.style.display = multiSelectActive ? 'flex' : 'none';
+  });
+  document.querySelectorAll('[id^="exp-edit-"],[id^="exp-del-"]').forEach(el => {
+    el.style.display = multiSelectActive ? 'none' : '';
+  });
+}
+
+function toggleExpSelect(i) {
+  if (!multiSelectActive) return;
+  const check = document.getElementById('exp-check-' + i);
+  const row = document.getElementById('exp-row-' + i);
+  if (selectedExpenses.has(i)) {
+    selectedExpenses.delete(i);
+    if (check) { check.innerHTML = ''; check.style.background = 'var(--bg3)'; check.style.borderColor = 'var(--border2)'; }
+    if (row) row.style.background = '';
+  } else {
+    selectedExpenses.add(i);
+    if (check) { check.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#4d9e6e" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>'; check.style.background = 'var(--green-bg)'; check.style.borderColor = 'var(--green)'; }
+    if (row) row.style.background = 'rgba(77,158,110,0.04)';
+  }
+  const delBtn = document.getElementById('multiDelBtn');
+  if (delBtn) {
+    delBtn.style.display = selectedExpenses.size > 0 ? 'block' : 'none';
+    delBtn.textContent = `Delete (${selectedExpenses.size})`;
+  }
+}
+
+function deleteSelected() {
+  if (!selectedExpenses.size) return;
+  showConfirm(`Delete ${selectedExpenses.size} transaction${selectedExpenses.size > 1 ? 's' : ''}?`, () => {
+    const indices = Array.from(selectedExpenses).sort((a, b) => b - a);
+    indices.forEach(i => DB[currentAcc].expenses.splice(i, 1));
+    selectedExpenses.clear();
+    multiSelectActive = false;
+    save(); renderEdit(); toast(`${indices.length} transactions deleted`);
+  });
+}
 
 let toastTimer = null;
 function toast(msg, isErr) {
