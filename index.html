@@ -1533,6 +1533,117 @@ function buildInvSheet(inv) {
   setTimeout(() => drawInvChart(inv, '1M'), 60);
 }
 
+// ═══════════════════════════════════════════════
+// REAL PRICE CHART
+// ═══════════════════════════════════════════════
+const AV_KEY = 'YG9TVOPPPDSO99SD';
+
+// Map ticker to CoinGecko ID for crypto
+const CG_IDS = {
+  BTC:'bitcoin',ETH:'ethereum',SOL:'solana',BNB:'binancecoin',
+  XRP:'ripple',ADA:'cardano',AVAX:'avalanche-2',DOT:'polkadot',
+  MATIC:'matic-network',LINK:'chainlink',UNI:'uniswap',DOGE:'dogecoin',
+  SHIB:'shiba-inu',LTC:'litecoin',ATOM:'cosmos',SUI:'sui',TON:'the-open-network',
+};
+
+// Cache to avoid re-fetching
+const chartCache = {};
+
+async function fetchRealChartData(inv, period) {
+  const cacheKey = inv.ticker + '_' + period;
+  if (chartCache[cacheKey] && Date.now() - chartCache[cacheKey].ts < 5 * 60 * 1000) {
+    return chartCache[cacheKey].data;
+  }
+
+  const isCrypto = inv.type === 'crypto';
+
+  if (isCrypto) {
+    return fetchCryptoChart(inv, period, cacheKey);
+  } else {
+    return fetchStockChart(inv, period, cacheKey);
+  }
+}
+
+async function fetchCryptoChart(inv, period, cacheKey) {
+  const cgId = CG_IDS[inv.ticker.toUpperCase()];
+  if (!cgId) return null;
+
+  const days = { '1D': 1, '1W': 7, '1M': 30, '1Y': 365, 'All': 1825 }[period] || 30;
+
+  try {
+    const url = `https://api.coingecko.com/api/v3/coins/${cgId}/market_chart?vs_currency=eur&days=${days}`;
+    const proxy = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+    const r = await fetch(proxy, { signal: AbortSignal.timeout(8000) });
+    const d = await r.json();
+    if (!d.prices || !d.prices.length) return null;
+
+    // Downsample to max 60 points for smooth rendering
+    const raw = d.prices;
+    const step = Math.max(1, Math.floor(raw.length / 60));
+    const prices = raw.filter((_, i) => i % step === 0 || i === raw.length - 1);
+    const data = { labels: prices.map(p => new Date(p[0])), values: prices.map(p => p[1]) };
+    chartCache[cacheKey] = { data, ts: Date.now() };
+    return data;
+  } catch(e) { return null; }
+}
+
+async function fetchStockChart(inv, period, cacheKey) {
+  // Alpha Vantage: use appropriate function per period
+  const avFn = period === '1D' ? 'TIME_SERIES_INTRADAY&interval=5min' :
+               period === '1W' ? 'TIME_SERIES_DAILY' :
+               period === '1M' ? 'TIME_SERIES_DAILY' :
+               'TIME_SERIES_WEEKLY';
+
+  // Special handling for ETFs with ISIN (like IWDA) — use ticker directly
+  const sym = inv.ticker;
+
+  try {
+    let url;
+    if (period === '1D' || period === '1W' || period === '1M') {
+      url = `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${sym}&outputsize=compact&apikey=${AV_KEY}`;
+    } else {
+      url = `https://www.alphavantage.co/query?function=TIME_SERIES_WEEKLY&symbol=${sym}&apikey=${AV_KEY}`;
+    }
+    const proxy = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+    const r = await fetch(proxy, { signal: AbortSignal.timeout(10000) });
+    const d = await r.json();
+
+    let series = d['Time Series (Daily)'] || d['Weekly Time Series'];
+    if (!series) return null;
+
+    // Get entries sorted chronologically
+    let entries = Object.entries(series)
+      .map(([date, v]) => ({ date: new Date(date), price: parseFloat(v['4. close']) }))
+      .sort((a, b) => a.date - b.date);
+
+    // Filter by period
+    const now = new Date();
+    const cutoffs = {
+      '1D': new Date(now - 1 * 24 * 3600 * 1000),
+      '1W': new Date(now - 7 * 24 * 3600 * 1000),
+      '1M': new Date(now - 30 * 24 * 3600 * 1000),
+      '1Y': new Date(now - 365 * 24 * 3600 * 1000),
+      'All': new Date(0),
+    };
+    entries = entries.filter(e => e.date >= cutoffs[period]);
+    if (!entries.length) return null;
+
+    // Convert USD to EUR if needed (approximation)
+    const needsConv = !['IWDA','VWCE','XDWD','BTP30','BTP28'].includes(sym);
+    const prices = needsConv ? entries.map(e => e.price * USDEUR) : entries.map(e => e.price);
+
+    const data = { labels: entries.map(e => e.date), values: prices };
+    chartCache[cacheKey] = { data, ts: Date.now() };
+    return data;
+  } catch(e) { return null; }
+}
+
+function formatChartLabel(date, period) {
+  if (period === '1D') return date.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+  if (period === '1W' || period === '1M') return date.toLocaleDateString('it-IT', { day: '2-digit', month: 'short' });
+  return date.toLocaleDateString('it-IT', { month: 'short', year: '2-digit' });
+}
+
 window.changePeriod = function(invId, period, btn) {
   let inv = null;
   for (const acc of Object.values(DB)) {
@@ -1546,49 +1657,149 @@ window.changePeriod = function(invId, period, btn) {
   drawInvChart(inv, period);
 };
 
-function genChartData(inv, period) {
-  const pts = { '1D': 24, '1W': 7, '1M': 30, '1Y': 52, 'All': 36 }[period] || 30;
-  const mult = { '1D': 0.985, '1W': 0.96, '1M': 0.88, '1Y': 0.70, 'All': 0.45 }[period] || 0.88;
-  const end = inv.current; const start = end * mult;
-  const pts2 = [];
-  for (let i = 0; i <= pts; i++) {
-    const t = i / pts;
-    const noise = (Math.sin(i * 2.3) * 0.012 + Math.sin(i * 0.7) * 0.018) * end;
-    pts2.push(start + (end - start) * (Math.pow(t, 0.8)) + noise);
-  }
-  pts2[pts2.length - 1] = end;
-  return pts2;
-}
-
-function drawInvChart(inv, period) {
+async function drawInvChart(inv, period) {
   if (invChartInst) { invChartInst.destroy(); invChartInst = null; }
   const canvas = document.getElementById('invChart');
   if (!canvas) return;
-  const data = genChartData(inv, period);
-  const gain = data[data.length - 1] - data[0];
+
+  // Show loading state
+  const ctx = canvas.getContext('2d');
+  const wrap = canvas.parentElement;
+  wrap.style.position = 'relative';
+
+  // Loading overlay
+  let loader = wrap.querySelector('.chart-loader');
+  if (!loader) {
+    loader = document.createElement('div');
+    loader.className = 'chart-loader';
+    loader.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--text3);';
+    loader.textContent = 'Loading chart…';
+    wrap.appendChild(loader);
+  }
+  loader.style.display = 'flex';
+  if (canvas) canvas.style.opacity = '0.3';
+
+  const chartData = await fetchRealChartData(inv, period);
+
+  loader.style.display = 'none';
+  if (canvas) canvas.style.opacity = '1';
+
+  if (!chartData || !chartData.values.length) {
+    // Fallback: flat line at current price with entry marker
+    loader.style.display = 'flex';
+    loader.textContent = 'No data available';
+    return;
+  }
+
+  const values = chartData.values;
+  const labels = chartData.labels;
+  const first = values[0];
+  const last = values[values.length - 1];
+  const gain = last - first;
   const color = gain >= 0 ? '#4d9e6e' : '#9e4d4d';
-  const entryIdx = Math.floor(data.length * 0.3);
+  const colorFill = gain >= 0 ? 'rgba(77,158,110,0.10)' : 'rgba(158,77,77,0.10)';
+
+  // Find entry point — closest date to inv.date
+  const entryDate = inv.date ? new Date(inv.date) : null;
+  let entryIdx = null;
+  let entryAnnotation = null;
+  if (entryDate) {
+    let minDiff = Infinity;
+    labels.forEach((d, i) => {
+      const diff = Math.abs(d - entryDate);
+      if (diff < minDiff) { minDiff = diff; entryIdx = i; }
+    });
+    // Only show entry if it's within the chart range
+    if (entryIdx !== null && entryIdx >= 0 && entryIdx < values.length) {
+      entryAnnotation = { x: entryIdx, y: inv.entry };
+    }
+  }
+
+  // Build datasets
+  const datasets = [
+    {
+      data: values,
+      borderColor: color,
+      backgroundColor: colorFill,
+      borderWidth: 1.8,
+      pointRadius: 0,
+      pointHoverRadius: 4,
+      pointHoverBackgroundColor: color,
+      fill: true,
+      tension: 0.3,
+    }
+  ];
+
+  // Entry marker
+  if (entryAnnotation !== null) {
+    datasets.push({
+      type: 'scatter',
+      data: values.map((v, i) => i === entryIdx ? { x: i, y: inv.entry } : null).filter(Boolean),
+      pointRadius: 7,
+      pointBackgroundColor: '#c8a840',
+      pointBorderColor: '#0c0c0c',
+      pointBorderWidth: 2,
+      showLine: false,
+    });
+  }
+
   invChartInst = new Chart(canvas, {
     type: 'line',
     data: {
-      labels: data.map((_, i) => i),
-      datasets: [
-        { data, borderColor: color, backgroundColor: color + '15', borderWidth: 1.8,
-          pointRadius: 0, fill: true, tension: 0.4 },
-        { type: 'scatter', data: data.map((v, i) => i === entryIdx ? { x: i, y: v } : null).filter(Boolean),
-          pointRadius: 6, pointBackgroundColor: '#c8a840',
-          pointBorderColor: '#0c0c0c', pointBorderWidth: 2, showLine: false }
-      ]
+      labels: values.map((_, i) => formatChartLabel(labels[i], period)),
+      datasets,
     },
     options: {
-      plugins: { legend: { display: false }, tooltip: {
-        callbacks: { label: c => (inv.currency === 'EUR' ? '€ ' : '$ ') + c.parsed.y.toFixed(2) }
-      }},
-      scales: {
-        x: { display: false },
-        y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#444', font: { size: 10 }, callback: v => '€' + (v/1000).toFixed(1)+'k' } }
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          mode: 'index',
+          intersect: false,
+          callbacks: {
+            label: ctx => {
+              if (ctx.datasetIndex === 0) return '€ ' + ctx.parsed.y.toFixed(2);
+              return '● Entry @ €' + inv.entry;
+            }
+          },
+          backgroundColor: 'rgba(20,20,20,0.95)',
+          titleColor: '#888',
+          bodyColor: '#f0f0f0',
+          borderColor: 'rgba(255,255,255,0.08)',
+          borderWidth: 0.5,
+          padding: 10,
+          titleFont: { size: 11 },
+          bodyFont: { size: 12 },
+        },
       },
-      responsive: true, maintainAspectRatio: false, animation: { duration: 250 }
+      scales: {
+        x: {
+          display: true,
+          grid: { display: false },
+          ticks: {
+            color: '#444',
+            font: { size: 10 },
+            maxTicksLimit: 5,
+            maxRotation: 0,
+          },
+          border: { display: false },
+        },
+        y: {
+          display: true,
+          position: 'right',
+          grid: { color: 'rgba(255,255,255,0.04)' },
+          ticks: {
+            color: '#444',
+            font: { size: 10 },
+            callback: v => v >= 1000 ? '€' + (v/1000).toFixed(1) + 'k' : '€' + v.toFixed(2),
+            maxTicksLimit: 4,
+          },
+          border: { display: false },
+        },
+      },
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 400, easing: 'easeOutQuart' },
+      interaction: { mode: 'index', intersect: false },
     }
   });
 }
